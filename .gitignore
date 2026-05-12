@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Environment
+.env
+
+# IDE - IntelliJ / PyCharm
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/usage.statistics.xml
+.idea/dictionaries/
+.idea/shelf/
+
+# IDE - Claude
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Alembic
+# migrations/versions/ is tracked; only ignore local temp
