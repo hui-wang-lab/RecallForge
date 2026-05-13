@@ -50,13 +50,24 @@ class TestLogger:
     def test_get_logger(self):
         from recallforge.observability.logger import get_logger
 
-        logger = get_logger("test")
-        assert logger.name == "test"
+        logger = get_logger("test_logger_basic")
+        assert logger.name == "test_logger_basic"
 
     def test_logger_no_duplicate_handlers(self):
         from recallforge.observability.logger import get_logger
 
-        logger1 = get_logger("test_no_dup")
+        logger1 = get_logger("test_no_dup_handlers")
         handler_count = len(logger1.handlers)
-        logger2 = get_logger("test_no_dup")
+        logger2 = get_logger("test_no_dup_handlers")
         assert len(logger2.handlers) == handler_count
+
+    def test_logger_no_duplicate_filters_on_handler(self):
+        from recallforge.observability.logger import _extra_filter, get_logger
+
+        logger = get_logger("test_no_dup_filters")
+        handler = logger.handlers[0]
+        filter_count = sum(1 for f in handler.filters if f is _extra_filter)
+        # Call get_logger again — should not add another _extra_filter
+        get_logger("test_no_dup_filters")
+        filter_count_after = sum(1 for f in handler.filters if f is _extra_filter)
+        assert filter_count == filter_count_after

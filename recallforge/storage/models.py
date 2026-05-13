@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
@@ -19,6 +18,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     Uuid,
+    text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, TIMESTAMP
 from sqlalchemy.dialects.postgresql import TSVECTOR as _TSVECTOR
@@ -27,10 +27,6 @@ from sqlalchemy.orm import DeclarativeBase
 
 class Base(DeclarativeBase):
     pass
-
-
-def _now() -> datetime:
-    return datetime.now()
 
 
 # ── Enum constant sets ──────────────────────────────────────────
@@ -91,7 +87,7 @@ class RagDocument(Base):
             "uq_rag_documents_active_source",
             "tenant_id", "source_uri",
             unique=True,
-            postgresql_where=Column("status") == "active",
+            postgresql_where=text("status = 'active'"),
         ),
         Index(
             "idx_rag_documents_tenant_source",
@@ -196,7 +192,7 @@ class RagParentChunk(Base):
         Index(
             "idx_rag_parent_chunks_active_version",
             "tenant_id", "source_uri", "version",
-            postgresql_where=Column("status") == "active",
+            postgresql_where=text("status = 'active'"),
         ),
     )
 
@@ -310,7 +306,7 @@ class RagChunk(Base):
         Index(
             "idx_rag_chunks_active_version",
             "tenant_id", "source_uri", "version",
-            postgresql_where=Column("status") == "active",
+            postgresql_where=text("status = 'active'"),
         ),
         Index(
             "idx_rag_chunks_permission_active",
@@ -319,13 +315,13 @@ class RagChunk(Base):
         Index(
             "idx_rag_chunks_embedding_model_active",
             "tenant_id", "embedding_model", "status",
-            postgresql_where=Column("status") == "active",
+            postgresql_where=text("status = 'active'"),
         ),
         Index(
             "idx_rag_chunks_content_tsv_active",
             "content_tsv",
             postgresql_using="gin",
-            postgresql_where=Column("status") == "active",
+            postgresql_where=text("status = 'active'"),
         ),
     )
 
@@ -337,7 +333,7 @@ class RagIngestJob(Base):
     __tablename__ = "rag_ingest_jobs"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
-    job_id = Column(Uuid, nullable=False, unique=True, default=uuid.uuid4)
+    job_id = Column(Uuid, nullable=False)
     tenant_id = Column(Text, nullable=False)
     document_id = Column(
         BigInteger,
@@ -397,11 +393,11 @@ class RagIngestJob(Base):
         ),
         Index(
             "idx_rag_ingest_jobs_tenant_status_created",
-            "tenant_id", "status", Column("created_at").desc(),
+            "tenant_id", "status", text("created_at DESC"),
         ),
         Index(
             "idx_rag_ingest_jobs_tenant_source_created",
-            "tenant_id", "source_uri", Column("created_at").desc(),
+            "tenant_id", "source_uri", text("created_at DESC"),
         ),
         Index(
             "idx_rag_ingest_jobs_document",
@@ -417,7 +413,7 @@ class RagQueryLog(Base):
     __tablename__ = "rag_query_logs"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
-    request_id = Column(Uuid, nullable=False, unique=True, default=uuid.uuid4)
+    request_id = Column(Uuid, nullable=False, default=uuid.uuid4)
     tenant_id = Column(Text, nullable=False)
     user_id = Column(Text, nullable=False)
     department = Column(Text, nullable=False)
@@ -460,6 +456,10 @@ class RagQueryLog(Base):
             f"search_mode IN {SEARCH_MODES}",
             name="ck_rag_query_logs_search_mode",
         ),
+        UniqueConstraint(
+            "request_id",
+            name="uq_rag_query_logs_request_id",
+        ),
         CheckConstraint(
             "embedding_dim IS NULL OR embedding_dim > 0",
             name="ck_rag_query_logs_embedding_dim",
@@ -489,18 +489,18 @@ class RagQueryLog(Base):
         ),
         Index(
             "idx_rag_query_logs_tenant_created",
-            "tenant_id", Column("created_at").desc(),
+            "tenant_id", text("created_at DESC"),
         ),
         Index(
             "idx_rag_query_logs_tenant_user_created",
-            "tenant_id", "user_id", Column("created_at").desc(),
+            "tenant_id", "user_id", text("created_at DESC"),
         ),
         Index(
             "idx_rag_query_logs_status_created",
-            "status", Column("created_at").desc(),
+            "status", text("created_at DESC"),
         ),
         Index(
             "idx_rag_query_logs_tenant_status_created",
-            "tenant_id", "status", Column("created_at").desc(),
+            "tenant_id", "status", text("created_at DESC"),
         ),
     )

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Literal, Mapping, Sequence
 
 from sqlalchemy import func, select, update
@@ -241,6 +241,7 @@ class ParentChunkCreate:
 @dataclass
 class ChildChunkCreate:
     tenant_id: TenantId
+    parent_id: ParentChunkId
     parent_key: str
     chunk_key: str
     chunk_index: int
@@ -256,6 +257,8 @@ class ChildChunkCreate:
     heading_path: list[str] | None = None
     page_start: int | None = None
     page_end: int | None = None
+    # TODO(M3): defaults should be derived from EmbeddingProvider config, not hardcoded.
+    # See ADR-0001: "embedding_provider/model/dim 的 chunk 描述必须由 EmbeddingProvider 与列映射推导".
     embedding_provider: str = "dashscope"
     embedding_model: str = "text-embedding-v4@1024"
     embedding_dim: int = 1024
@@ -318,7 +321,7 @@ class QueryLogCreate:
     refusal_reason: str | None = None
     latencies_ms: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
-    status: str = "success"
+    status: str = "failed"
     error_message: str | None = None
 
 
@@ -577,7 +580,7 @@ class DocumentRepository:
         tenant_id: TenantId,
         deleted_by: str | None = None,
     ) -> DocumentRecord:
-        now = datetime.now()
+        now = datetime.now(UTC)
         stmt = (
             update(RagDocument)
             .where(
@@ -587,7 +590,37 @@ class DocumentRepository:
             )
             .values(status="deleted", deleted_at=now, updated_at=now, updated_by=deleted_by)
         )
-        await self._session.execute(stmt)
+        result = await self._session.execute(stmt)
+        if result.rowcount == 0:
+            row = await self._session.get(RagDocument, document_id)
+            if row is None or row.tenant_id != tenant_id:
+                msg = f"Document {document_id} not found for tenant {tenant_id}"
+                raise ValueError(msg)
+            return _doc_to_record(row)
+
+        # Cascade deletion to parent and child chunks per AGENTS.md requirement.
+        parent_stmt = (
+            update(RagParentChunk)
+            .where(
+                RagParentChunk.document_id == document_id,
+                RagParentChunk.tenant_id == tenant_id,
+                RagParentChunk.status != "deleted",
+            )
+            .values(status="deleted", deleted_at=now, updated_at=now)
+        )
+        await self._session.execute(parent_stmt)
+
+        child_stmt = (
+            update(RagChunk)
+            .where(
+                RagChunk.document_id == document_id,
+                RagChunk.tenant_id == tenant_id,
+                RagChunk.status != "deleted",
+            )
+            .values(status="deleted", deleted_at=now, updated_at=now)
+        )
+        await self._session.execute(child_stmt)
+
         row = await self._session.get(RagDocument, document_id)
         return _doc_to_record(row)
 
@@ -604,7 +637,7 @@ class DocumentVersionRepository:
         tenant_id: TenantId,
         source_uri: str,
     ) -> SupersedeResult:
-        now = datetime.now()
+        now = datetime.now(UTC)
         doc_stmt = (
             update(RagDocument)
             .where(
@@ -625,6 +658,7 @@ class DocumentVersionRepository:
             parent_stmt = (
                 update(RagParentChunk)
                 .where(
+                    RagParentChunk.tenant_id == tenant_id,
                     RagParentChunk.document_id.in_(doc_ids),
                     RagParentChunk.status == "active",
                 )
@@ -636,6 +670,7 @@ class DocumentVersionRepository:
             child_stmt = (
                 update(RagChunk)
                 .where(
+                    RagChunk.tenant_id == tenant_id,
                     RagChunk.document_id.in_(doc_ids),
                     RagChunk.status == "active",
                 )
@@ -656,7 +691,7 @@ class DocumentVersionRepository:
         tenant_id: TenantId,
         deleted_by: str | None = None,
     ) -> SupersedeResult:
-        now = datetime.now()
+        now = datetime.now(UTC)
         doc_stmt = (
             update(RagDocument)
             .where(
@@ -665,8 +700,10 @@ class DocumentVersionRepository:
                 RagDocument.status != "deleted",
             )
             .values(status="deleted", deleted_at=now, updated_at=now, updated_by=deleted_by)
+            .returning(RagDocument.id)
         )
-        await self._session.execute(doc_stmt)
+        doc_result = (await self._session.execute(doc_stmt)).fetchall()
+        doc_count = len(doc_result)
 
         parent_stmt = (
             update(RagParentChunk)
@@ -693,7 +730,7 @@ class DocumentVersionRepository:
         child_count = child_result.rowcount  # type: ignore[assignment]
 
         return SupersedeResult(
-            document_count=1,
+            document_count=doc_count,
             parent_chunk_count=parent_count,
             child_chunk_count=child_count,
         )
@@ -734,9 +771,14 @@ class DocumentVersionRepository:
         self._session.add(new_doc)
         await self._session.flush()
 
-        # Clone parent chunks
-        parent_stmt = select(RagParentChunk).where(
-            RagParentChunk.document_id == source_document_id,
+        # Clone parent chunks — use parent_key mapping to avoid relying on row ordering
+        parent_stmt = (
+            select(RagParentChunk)
+            .where(
+                RagParentChunk.document_id == source_document_id,
+                RagParentChunk.tenant_id == tenant_id,
+            )
+            .order_by(RagParentChunk.id)
         )
         parents = (await self._session.execute(parent_stmt)).scalars().all()
 
@@ -765,9 +807,15 @@ class DocumentVersionRepository:
             await self._session.flush()
             old_to_new_parent[p.id] = new_p.id
 
-        # Clone child chunks
-        chunk_stmt = select(RagChunk).where(
-            RagChunk.document_id == source_document_id,
+        # Clone child chunks — carry over embedding vectors and metadata so that
+        # restored versions remain immediately searchable without M3 re-backfill.
+        chunk_stmt = (
+            select(RagChunk)
+            .where(
+                RagChunk.document_id == source_document_id,
+                RagChunk.tenant_id == tenant_id,
+            )
+            .order_by(RagChunk.id)
         )
         chunks = (await self._session.execute(chunk_stmt)).scalars().all()
         for c in chunks:
@@ -795,7 +843,8 @@ class DocumentVersionRepository:
                 embedding_provider=c.embedding_provider,
                 embedding_model=c.embedding_model,
                 embedding_dim=c.embedding_dim,
-                embedding_metadata=c.embedding_metadata,
+                embedding_text_embedding_v4_1024=c.embedding_text_embedding_v4_1024,
+                embedding_metadata=c.embedding_metadata if c.embedding_metadata else {},
                 metadata_=c.metadata_,
             )
             self._session.add(new_c)
@@ -876,6 +925,8 @@ class ParentChunkRepository:
         parent_ids: Sequence[ParentChunkId],
         statuses: Sequence[DocumentStatus] = ("active",),
     ) -> list[ParentChunkRecord]:
+        if not parent_ids:
+            return []
         stmt = select(RagParentChunk).where(
             RagParentChunk.tenant_id == tenant_id,
             RagParentChunk.id.in_(parent_ids),
@@ -890,7 +941,7 @@ class ParentChunkRepository:
         tenant_id: TenantId,
         status: DocumentStatus,
     ) -> int:
-        now = datetime.now()
+        now = datetime.now(UTC)
         stmt = (
             update(RagParentChunk)
             .where(
@@ -921,7 +972,7 @@ class ChunkRepository:
             row = RagChunk(
                 tenant_id=c.tenant_id,
                 document_id=document_id,
-                parent_id=0,  # Must be set by caller before flush
+                parent_id=c.parent_id,
                 parent_key=c.parent_key,
                 chunk_key=c.chunk_key,
                 chunk_index=c.chunk_index,
@@ -969,6 +1020,8 @@ class ChunkRepository:
         chunk_ids: Sequence[ChunkId],
         statuses: Sequence[DocumentStatus] = ("active",),
     ) -> list[ChildChunkRecord]:
+        if not chunk_ids:
+            return []
         stmt = select(RagChunk).where(
             RagChunk.tenant_id == tenant_id,
             RagChunk.id.in_(chunk_ids),
@@ -998,6 +1051,8 @@ class ChunkRepository:
         tenant_id: TenantId | None = None,
         statuses: Sequence[DocumentStatus] = ("active",),
     ) -> list[ChildChunkEmbeddingSource]:
+        # TODO(M3): column check should be derived from embedding_model -> column mapping,
+        # not hardcoded to the baseline column. See ADR-0001.
         stmt = (
             select(RagChunk)
             .where(
@@ -1029,7 +1084,7 @@ class ChunkRepository:
         tenant_id: TenantId,
         status: DocumentStatus,
     ) -> int:
-        now = datetime.now()
+        now = datetime.now(UTC)
         stmt = (
             update(RagChunk)
             .where(
@@ -1042,6 +1097,10 @@ class ChunkRepository:
         result = await self._session.execute(stmt)
         return result.rowcount  # type: ignore[return-value]
 
+    # TODO(M4): access_level filtering uses exact match here. The server-side filter
+    # construction layer must expand access_level into an allowed set (e.g. a
+    # confidential user should see public + internal + confidential), not pass a
+    # single level. This must be fixed when implementing the retrieval pipeline.
     async def search_full_text(
         self,
         query: str,
@@ -1058,7 +1117,7 @@ class ChunkRepository:
                 ts_rank_cd(content_tsv, plainto_tsquery('simple', :query)) AS score
             FROM rag_chunks
             WHERE tenant_id = :tenant_id
-              AND status = 'active'
+              AND status = :status
               AND content_tsv @@ plainto_tsquery('simple', :query)
               AND (:department IS NULL OR department = :department)
               AND (:access_level IS NULL OR access_level = :access_level)
@@ -1073,6 +1132,7 @@ class ChunkRepository:
             {
                 "query": query,
                 "tenant_id": filters.tenant_id,
+                "status": filters.status if filters.status else "active",
                 "department": filters.department,
                 "access_level": filters.access_level,
                 "doc_type": filters.doc_type,
@@ -1082,13 +1142,13 @@ class ChunkRepository:
             },
         )
         hits = []
-        for row in result:
+        for i, row in enumerate(result, start=1):
             hits.append(
                 FullTextHit(
                     chunk_id=row.chunk_id,
                     document_id=row.document_id,
                     parent_id=row.parent_id,
-                    rank=0,
+                    rank=i,
                     score=row.score,
                     score_source="full_text",
                 )
@@ -1131,7 +1191,7 @@ class IngestJobRepository:
         return _job_to_record(row) if row else None
 
     async def mark_running(self, job_id: JobId, tenant_id: TenantId) -> IngestJobRecord:
-        now = datetime.now()
+        now = datetime.now(UTC)
         stmt = (
             update(RagIngestJob)
             .where(
@@ -1141,7 +1201,20 @@ class IngestJobRepository:
             )
             .values(status="running", started_at=now, updated_at=now)
         )
-        await self._session.execute(stmt)
+        result = await self._session.execute(stmt)
+        if result.rowcount == 0:
+            # Idempotent: already running, return existing record
+            row = (await self._session.execute(
+                select(RagIngestJob).where(
+                    RagIngestJob.job_id == job_id,
+                    RagIngestJob.tenant_id == tenant_id,
+                    RagIngestJob.status == "running",
+                )
+            )).scalar_one_or_none()
+            if row is not None:
+                return _job_to_record(row)
+            msg = f"IngestJob {job_id} not found or not in pending/running state for tenant {tenant_id}"
+            raise ValueError(msg)
         row = (await self._session.execute(
             select(RagIngestJob).where(
                 RagIngestJob.job_id == job_id,
@@ -1156,7 +1229,7 @@ class IngestJobRepository:
         tenant_id: TenantId,
         result: IngestJobSuccess,
     ) -> IngestJobRecord:
-        now = datetime.now()
+        now = datetime.now(UTC)
         stmt = (
             update(RagIngestJob)
             .where(
@@ -1179,7 +1252,10 @@ class IngestJobRepository:
                 updated_at=now,
             )
         )
-        await self._session.execute(stmt)
+        update_result = await self._session.execute(stmt)
+        if update_result.rowcount == 0:
+            msg = f"IngestJob {job_id} not in running state for tenant {tenant_id}"
+            raise ValueError(msg)
         row = (await self._session.execute(
             select(RagIngestJob).where(
                 RagIngestJob.job_id == job_id,
@@ -1195,7 +1271,16 @@ class IngestJobRepository:
         error_message: str,
         diagnostics: Mapping[str, Any],
     ) -> IngestJobRecord:
-        now = datetime.now()
+        now = datetime.now(UTC)
+        # Merge diagnostics into existing metadata instead of overwriting
+        existing = (await self._session.execute(
+            select(RagIngestJob.metadata_).where(
+                RagIngestJob.job_id == job_id,
+                RagIngestJob.tenant_id == tenant_id,
+                RagIngestJob.status == "running",
+            )
+        )).scalar_one_or_none()
+        merged = {**(existing if existing else {}), **dict(diagnostics)}
         stmt = (
             update(RagIngestJob)
             .where(
@@ -1206,12 +1291,15 @@ class IngestJobRepository:
             .values(
                 status="failed",
                 error_message=error_message,
-                metadata_=dict(diagnostics),
+                metadata_=merged,
                 finished_at=now,
                 updated_at=now,
             )
         )
-        await self._session.execute(stmt)
+        update_result = await self._session.execute(stmt)
+        if update_result.rowcount == 0:
+            msg = f"IngestJob {job_id} not in running state for tenant {tenant_id}"
+            raise ValueError(msg)
         row = (await self._session.execute(
             select(RagIngestJob).where(
                 RagIngestJob.job_id == job_id,
@@ -1226,8 +1314,9 @@ class IngestJobRepository:
         tenant_id: TenantId,
         document_id: DocumentId,
         content_hash: str,
+        version: int,
     ) -> IngestJobRecord:
-        now = datetime.now()
+        now = datetime.now(UTC)
         stmt = (
             update(RagIngestJob)
             .where(
@@ -1239,11 +1328,15 @@ class IngestJobRepository:
                 status="skipped_duplicate",
                 document_id=document_id,
                 content_hash=content_hash,
+                version=version,
                 finished_at=now,
                 updated_at=now,
             )
         )
-        await self._session.execute(stmt)
+        update_result = await self._session.execute(stmt)
+        if update_result.rowcount == 0:
+            msg = f"IngestJob {job_id} not in running state for tenant {tenant_id}"
+            raise ValueError(msg)
         row = (await self._session.execute(
             select(RagIngestJob).where(
                 RagIngestJob.job_id == job_id,
@@ -1348,7 +1441,7 @@ class QueryLogRepository:
         error_message: str,
         latencies_ms: Mapping[str, int],
     ) -> QueryLogRecord:
-        now = datetime.now()
+        now = datetime.now(UTC)
         stmt = (
             update(RagQueryLog)
             .where(
@@ -1359,7 +1452,7 @@ class QueryLogRepository:
                 status="failed",
                 error_message=error_message,
                 latencies_ms=dict(latencies_ms),
-                created_at=now,
+                updated_at=now,
             )
         )
         await self._session.execute(stmt)

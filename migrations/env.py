@@ -21,6 +21,10 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
+# TODO(M3): Add startup validation that EmbeddingProvider.dim matches the
+# vector column dimension in the DDL (e.g. embedding_text_embedding_v4_1024
+# should be VECTOR(1024)). Mismatch must fail fast. See M1-design.md and ADR-0001.
+
 
 def render_item(type_, obj, autogen_context):
     """Register pgvector Vector type so Alembic can render it in migrations."""

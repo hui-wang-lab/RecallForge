@@ -207,6 +207,10 @@ class TestRagChunk:
         else:
             pytest.fail("GIN index on content_tsv not found")
 
+    def test_permission_index_exists(self):
+        names = _get_index_names(RagChunk.__table__)
+        assert "idx_rag_chunks_permission_active" in names
+
 
 class TestRagIngestJob:
     def test_tablename(self):
@@ -233,16 +237,23 @@ class TestRagIngestJob:
         }
         assert expected.issubset(cols)
 
-    def test_job_id_is_uuid_not_null_unique(self):
+    def test_job_id_is_uuid_not_null(self):
         col = RagIngestJob.__table__.c.job_id
         assert col is not None
         assert not col.nullable
-        assert col.unique
+        # No column-level unique; uniqueness enforced by named constraint
+        assert not col.unique
 
     def test_unique_constraints(self):
         uniques = _get_unique_constraint_names(RagIngestJob.__table__)
         assert "uq_rag_ingest_jobs_job_id" in uniques
         assert "uq_rag_ingest_jobs_tenant_job_id" in uniques
+
+    def test_no_anonymous_unique_on_job_id(self):
+        for idx in RagIngestJob.__table__.indexes:
+            is_job_id = idx.columns == [RagIngestJob.__table__.c.job_id]
+            if is_job_id and idx.unique and idx.name != "uq_rag_ingest_jobs_job_id":
+                pytest.fail("Found anonymous unique index on job_id column")
 
     def test_check_constraints(self):
         checks = _get_check_constraint_names(RagIngestJob.__table__)
@@ -293,6 +304,14 @@ class TestRagQueryLog:
         assert "ck_rag_query_logs_access_level" in checks
         assert "ck_rag_query_logs_status_payload" in checks
         assert "ck_rag_query_logs_vector_embedding" in checks
+
+    def test_request_id_unique_constraint(self):
+        uniques = _get_unique_constraint_names(RagQueryLog.__table__)
+        assert "uq_rag_query_logs_request_id" in uniques
+
+    def test_request_id_no_column_level_unique(self):
+        col = RagQueryLog.__table__.c.request_id
+        assert not col.unique
 
 
 # ── Enum closure tests ──────────────────────────────────────────

@@ -22,10 +22,14 @@ class Settings(BaseSettings):
     embedding_provider: str = "dashscope"
 
     # ── API Keys ──────────────────────────────────────────
+    # Primary API key used for both the embedding provider and the LLM.
+    # Named "openai_api_key" for broad compatibility; maps from env OPENAI_API_KEY.
     openai_api_key: str = ""
     openai_base_url: str = ""
 
     # ── Reranker ──────────────────────────────────────────
+    # When empty, reranker is disabled. M4+ requires explicit configuration;
+    # leaving these blank after M4 will log a warning on every query.
     reranker_model: str = ""
     reranker_provider: str = ""
 
