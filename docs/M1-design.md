@@ -14,8 +14,8 @@ M1 的目标是建立可追溯、可过滤、可重建、支持多 embedding 模
 | `rag_parent_chunks` | P0 | parent chunk 存储 | parent/child 可通过 `parent_id` 与 `parent_key` 稳定关联 |
 | `rag_chunks` | P0 | child chunk 原文、权限、引用、embedding 描述 | 保存 child 原文、权限字段、引用字段、`content_hash`、`status`、`embedding_model`、`embedding_dim` |
 | pgvector extension 初始化 | P0 | 向量存储基线 | migration 从空库可创建 `vector` extension 与基线向量列 |
-| 多 embedding 存储 ADR | P0 | 多列策略 vs 多表策略 | 推荐多列策略，禁止原表直接替换模型维度 |
-| 核心索引 | P0 | tenant、doc_type、status、version、document_id、embedding | 查询默认命中 active 最新版本，向量列可建立 HNSW 索引 |
+| 多 embedding 存储 ADR | P0 | 多列策略 vs 多表策略 | 独立文件 [docs/adr/0001-embedding-storage-strategy.md](adr/0001-embedding-storage-strategy.md)：采用多列策略，禁止原表直接 ALTER 既有向量列维度 |
+| 核心索引 | P0 | tenant、doc_type、status、version、document_id、embedding metadata | 查询默认命中 active 最新版本；M1 只提供 vector 列与普通元数据索引，HNSW 留到 M7 或数据量评估后启用 |
 | `rag_ingest_jobs` | P1 | 导入任务状态与解析诊断 | 支持 `pending`、`running`、`success`、`failed`、`skipped_duplicate` |
 | `rag_query_logs` | P1 | 查询可复盘日志 | 记录 question、filters、命中摘要、answer、模型、阈值和耗时 |
 | repository 层封装 | P1 | 避免业务 SQL 散落 | 业务层通过 repository 读写元数据；向量写入仍由 M3 `VectorStoreAdapter` 接管 |
@@ -25,21 +25,14 @@ M1 的目标是建立可追溯、可过滤、可重建、支持多 embedding 模
 
 ## ADR：embedding 多模型存储策略
 
-### 决策
+embedding 多模型存储的完整决策、备选方案与禁止事项见独立 ADR：[docs/adr/0001-embedding-storage-strategy.md](adr/0001-embedding-storage-strategy.md)。本节只在 M1 spec 内保留必要摘要与设计约束，避免与 ADR 内容漂移。
 
-M1 推荐采用 `rag_chunks` 多列策略：
+### 摘要
 
-- 基线列：`embedding_text_embedding_v4_1024 vector(1024)`。
-- 后续模型新增列，例如 `embedding_text_embedding_v4_2048 vector(2048)`。
+- M1 采用 `rag_chunks` 多列策略：基线列 `embedding_text_embedding_v4_1024 vector(1024)`；后续模型新增列，例如 `embedding_text_embedding_v4_2048 vector(2048)`。
 - 检索调用必须显式传入 `embedding_model`，repository 或 `PgVectorStore` 根据配置映射到对应向量列。
-- 禁止通过 `ALTER COLUMN embedding TYPE vector(<new_dim>)` 直接替换既有维度。
-
-### 备选方案
-
-| 方案 | 优点 | 缺点 | 结论 |
-| --- | --- | --- | --- |
-| 多列策略 | 保持 5 张核心表；parent/child、权限、引用字段只存一份；新增模型只补新列和索引；M6 A/B 评测可在同一 chunk 集合上比较 | 表宽会增长；列映射需要配置和启动校验；每个模型的索引需要单独管理 | 推荐 |
-| 多表策略 | 每个模型表维度纯净；索引隔离清晰 | chunk 原文、权限、引用字段容易重复；跨模型评测需要跨表对齐；逻辑删除和版本状态同步更复杂 | 暂不采用 |
+- 禁止通过 `ALTER COLUMN embedding TYPE vector(<new_dim>)` 或等价语句直接替换既有向量列维度，详见 ADR 中"禁止事项"。
+- 备选的多表策略因为 chunk 原文、权限、引用字段重复，且版本与逻辑删除状态难以跨表同步，M1 暂不采用。
 
 ### 设计约束
 
@@ -172,14 +165,16 @@ M1 采用闭合 `access_level` 枚举，默认取值为 `public`、`internal`、
 
 - `UNIQUE (document_id, chunk_key)`。
 - `(tenant_id, doc_type)`、`(document_id)`、`(tenant_id, source_uri, version) WHERE status = 'active'`。
+- `(tenant_id, embedding_model, status) WHERE status = 'active'` 普通索引，用于按模型筛选回填进度与候选集。
 - `content_tsv` 使用 GIN 索引，为 M4 hybrid search 预留。
-- 基线向量列使用 cosine HNSW 索引；小数据量阶段可以通过配置延迟创建或不使用该索引，但 DDL 预览保留质量优先的索引形态。M6 评测后可按数据规模调整 `ef_search`。
+- **M1 不创建任何 HNSW 索引**。基线向量列只声明 `VECTOR(1024)` 数据类型，召回阶段使用顺序扫描（精确检索）保留召回质量上限；HNSW 留到 M7 或数据量评估后启用，触发阈值与 [AGENTS.md 索引与检索性能](../AGENTS.md#索引与检索性能) 保持一致。
 
 ### `rag_ingest_jobs`
 
 | 字段 | 类型 | 约束 | 说明 |
 | --- | --- | --- | --- |
-| `id` | `BIGSERIAL` | PK | 导入任务 ID |
+| `id` | `BIGSERIAL` | PK | 数据库内部主键，仅用于物理排序与外键引用，不向外部 API 暴露 |
+| `job_id` | `UUID` | not null, unique | 对外稳定的任务 ID，由 API 入口生成；客户端、状态查询、`POST /api/rag/documents` 返回均使用该字段 |
 | `tenant_id` | `TEXT` | not null | 租户 |
 | `document_id` | `BIGINT` | nullable FK -> `rag_documents.id` | 成功或跳过后关联文档 |
 | `source_uri` | `TEXT` | not null | 导入来源 |
@@ -204,11 +199,15 @@ M1 采用闭合 `access_level` 枚举，默认取值为 `public`、`internal`、
 | `created_at` | `TIMESTAMPTZ` | not null | 创建时间 |
 | `updated_at` | `TIMESTAMPTZ` | not null | 更新时间 |
 
-关键索引：
+关键约束与索引：
 
+- `UNIQUE (job_id)`：对外稳定 ID 全局唯一。
+- `UNIQUE (tenant_id, job_id)`：保证 repository 按 `(tenant_id, job_id)` 查询时索引命中且天然隔离租户。
 - `(tenant_id, status, created_at DESC)`。
 - `(tenant_id, source_uri, created_at DESC)`。
 - `(document_id)`。
+
+`job_id` 由 API 入口（`POST /api/rag/documents`）生成并写入；后续 repository 的 `get` / `mark_running` / `mark_success` / `mark_failed` / `mark_skipped_duplicate` 均基于 `(tenant_id, job_id)` 定位，不暴露内部自增 `id`，避免内部主键泄漏与跨租户碰撞。
 
 ### `rag_query_logs`
 
@@ -415,14 +414,17 @@ CREATE INDEX idx_rag_chunks_content_tsv_active
 ON rag_chunks USING gin (content_tsv)
 WHERE status = 'active';
 
-CREATE INDEX idx_rag_chunks_embedding_text_embedding_v4_1024_hnsw
-ON rag_chunks
-USING hnsw (embedding_text_embedding_v4_1024 vector_cosine_ops)
-WITH (m = 16, ef_construction = 200)
-WHERE status = 'active' AND embedding_text_embedding_v4_1024 IS NOT NULL;
+-- 注意：M1 不创建任何 HNSW 索引。
+-- 基线向量列 embedding_text_embedding_v4_1024 仅作为 VECTOR(1024) 数据载体存在，
+-- 召回使用精确顺序扫描以保留召回质量上限。
+-- HNSW 索引（含 m / ef_construction / ef_search 调参）延后到 M7 或数据量评估后启用，
+-- 触发阈值与 AGENTS.md《索引与检索性能》一致：单租户 active chunk 数超过 50 万，
+-- 或单表 active chunk 数超过 200 万。届时通过新增 migration 单独创建，
+-- 不在 M1 DDL 预览中提前固化。
 
 CREATE TABLE rag_ingest_jobs (
     id BIGSERIAL PRIMARY KEY,
+    job_id UUID NOT NULL,
     tenant_id TEXT NOT NULL,
     document_id BIGINT REFERENCES rag_documents(id) ON DELETE RESTRICT,
     source_uri TEXT NOT NULL,
@@ -449,7 +451,11 @@ CREATE TABLE rag_ingest_jobs (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT ck_rag_ingest_jobs_content_hash
-        CHECK (content_hash IS NULL OR content_hash ~ '^[0-9a-f]{64}$')
+        CHECK (content_hash IS NULL OR content_hash ~ '^[0-9a-f]{64}$'),
+    CONSTRAINT uq_rag_ingest_jobs_job_id
+        UNIQUE (job_id),
+    CONSTRAINT uq_rag_ingest_jobs_tenant_job_id
+        UNIQUE (tenant_id, job_id)
 );
 
 CREATE INDEX idx_rag_ingest_jobs_tenant_status_created
@@ -535,7 +541,7 @@ TenantId = str
 DocumentId = int
 ParentChunkId = int
 ChunkId = int
-JobId = int
+JobId = UUID  # 对外稳定 ID；如果实现层选用 TEXT 列存储，则别名为 str
 RequestId = UUID
 DocumentStatus = Literal["active", "superseded", "deleted"]
 
@@ -639,6 +645,13 @@ mark_failed(job_id: JobId, tenant_id: TenantId, error_message: str, diagnostics:
 mark_skipped_duplicate(job_id: JobId, tenant_id: TenantId, document_id: DocumentId, content_hash: str) -> IngestJobRecord
 list_recent(tenant_id: TenantId, status: str | None, limit: int) -> list[IngestJobRecord]
 ```
+
+约束：
+
+- 所有 `get` / `mark_*` 方法的 `job_id` 参数都是 `rag_ingest_jobs.job_id`（对外稳定 UUID），**不是**内部自增主键 `id`。repository 内部按 `(tenant_id, job_id)` 路由到行，禁止任何方法暴露或接收内部 `id`。
+- `IngestJobCreate` 必须由调用方或 repository 在 API 入口生成 `job_id`（推荐 `uuid4`）。一次导入请求 ↔ 一个 `job_id`，重试由新 `job_id` 表达。
+- `IngestJobRecord` 的对外标识字段为 `job_id`；内部 `id` 仅作为同租户内的物理顺序/外键引用，不应进入 API、日志摘要或客户端可见字段。
+- `tenant_id` 在每个方法中显式传入并参与匹配，防止跨租户读取或越权状态切换。
 
 ### `QueryLogRepository`
 
@@ -745,7 +758,7 @@ pending -> running -> skipped_duplicate
 
 - 新模型只能通过新增向量列或未来 ADR 批准的新表策略接入。
 - 新增向量列命名使用稳定 slug，例如 `embedding_text_embedding_v4_2048`。
-- 每个向量列必须有独立维度校验和可选 HNSW 索引。
+- 每个向量列必须有独立维度校验。HNSW 等向量索引在 M1 不创建，M7 或数据量评估后再按列单独追加 migration 启用，每列拥有独立的 `m` / `ef_construction` / `ef_search` 配置。
 - `rag_chunks.embedding_provider`、`embedding_model`、`embedding_dim` 是基线列描述，不是所有向量列的完整状态；多列回填结果以 `embedding_metadata` 为准。
 - 检索、评测和查询日志必须记录实际使用模型，不允许依赖默认模型隐式推断。
 
@@ -773,10 +786,32 @@ pending -> running -> skipped_duplicate
 - 跨版本召回必须由服务端显式允许，并通过白名单 filter 指定 `version`。
 - 回滚旧内容必须走显式 `restore_version()`，普通导入不会把历史 superseded 文档重新激活。
 
+## 实现文件清单
+
+M1 的代码与文档落地必须至少覆盖以下文件，每个文件都有最小职责口径，开发与评审按此清单核对：
+
+| 路径 | 职责 | 最小验收口径 |
+| --- | --- | --- |
+| `docs/adr/0001-embedding-storage-strategy.md` | embedding 存储 ADR | 独立 ADR 文件，包含标题、状态（Accepted）、日期、背景、决策（采用 `rag_chunks` 多列策略）、后果、备选方案（多表策略）、禁止事项（禁止原表直接 ALTER 既有向量列维度） |
+| `recallforge/storage/models.py` | SQLAlchemy 2.0 模型和 `Base` | 声明 `Base = DeclarativeBase`；定义 `RagDocument`、`RagParentChunk`、`RagChunk`、`RagIngestJob`、`RagQueryLog` 五张表的列、约束（含 `rag_ingest_jobs.job_id UUID UNIQUE` 与 `rag_chunks.embedding_text_embedding_v4_1024 VECTOR(1024)`）、关系；不含任何业务 SQL |
+| `recallforge/storage/repository.py` | 异步 repository 接口 | 实现本设计"Repository 层接口签名"全部 Protocol/抽象类：`DocumentRepository`、`DocumentVersionRepository`、`ParentChunkRepository`、`ChunkRepository`、`IngestJobRepository`、`QueryLogRepository`；`IngestJobRepository` 全部方法基于 `(tenant_id, job_id)`；禁止把内部自增 `id` 暴露到接口签名 |
+| `migrations/versions/<revision>_create_initial_tables.py` | 初始数据库迁移 | Alembic upgrade 从空库可创建 5 张核心表、`vector` extension、全部普通索引、`uq_rag_documents_active_source` 等部分唯一索引、`content_tsv` 生成列与 GIN 索引、`rag_ingest_jobs.job_id` 唯一约束；**不创建任何 HNSW 索引**；downgrade 能完整回滚 |
+| `migrations/env.py` | Alembic 环境 | 导入 `recallforge.storage.models.Base.metadata` 作为 `target_metadata`，并启用 pgvector 类型识别（`render_as_batch=False`，注册 `Vector` 类型）；运行时读取 `EmbeddingProvider.dim` 与 DDL 做一致性校验 |
+| `tests/test_models.py` | 模型层测试 | 覆盖：每张表实例化、表名（`__tablename__` 与本设计一致）、列名与列类型（重点 `rag_ingest_jobs.job_id` 为 `UUID NOT NULL UNIQUE`、`rag_chunks.embedding_text_embedding_v4_1024` 为 `VECTOR(1024)`）、约束（CHECK、UNIQUE、部分唯一索引、外键 ON DELETE RESTRICT）、`access_level` 枚举闭合 |
+| `tests/test_migrations.py` | 迁移测试 | 至少包含：`alembic heads` 返回单一 head；迁移文件存在且文件名匹配；`upgrade head -> downgrade base -> upgrade head` 幂等；upgrade 后 5 张表、`vector` extension、普通索引存在且无 HNSW 索引；`rag_ingest_jobs.job_id` 唯一约束生效 |
+
+补充约束：
+
+- 该清单是 M1 spec 的最低限度，不限制按需新增辅助模块（例如 `recallforge/storage/types.py`、`recallforge/storage/embedding_columns.py`）。
+- 禁止在 M1 阶段提交向量写入、查询、Agent 工具调用或 HTTP API 实现，避免越出 M1 范围。
+- 任何对模型、repository 接口、DDL 的偏离都必须先回到本 spec 与 ADR 中修订，再落入实现。
+
 ## M1 完成定义
 
 - migration 可从空 Postgres 创建 5 张核心表和 pgvector extension。
-- DDL 含基线 1024 维向量列、全文检索列和核心索引。
+- DDL 含基线 1024 维向量列、全文检索列和核心索引，不含任何 HNSW 索引。
 - 数据模型能表达 parent/child、权限字段、引用字段、hash、版本和逻辑删除。
-- repository 接口覆盖 M2 入库、M3 回填和 M4 全文检索钩子的最小需要。
-- 多 embedding 模型共存策略有明确 ADR，不存在直接替换向量列维度的路径。
+- `rag_ingest_jobs` 暴露的对外标识为 `job_id`（UUID，唯一），内部自增 `id` 仅作为物理主键。
+- repository 接口覆盖 M2 入库、M3 回填和 M4 全文检索钩子的最小需要；`IngestJobRepository` 的所有方法基于 `(tenant_id, job_id)`。
+- 多 embedding 模型共存策略有明确独立 ADR（`docs/adr/0001-embedding-storage-strategy.md`），不存在直接替换向量列维度的路径。
+- "实现文件清单"列出的全部文件已存在，并满足各自的最小验收口径。
