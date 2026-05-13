@@ -20,6 +20,7 @@ from recallforge.storage.repository import (
     DocumentRepository,
     IngestJobCreate,
     IngestJobRepository,
+    IngestJobSkippedDuplicate,
     IngestJobSuccess,
     QueryLogCreate,
 )
@@ -336,7 +337,14 @@ class TestIngestJobStatusMachine:
 
         session.execute.side_effect = [meta_result, update_result, scalar_result]
 
-        record = await repo.mark_failed(job_id, "t1", "parse error", {"detail": "stack"})
+        record = await repo.mark_failed(
+            job_id,
+            "t1",
+            "parse error",
+            {"detail": "stack"},
+            warnings=[{"level": "error", "message": "parse error"}],
+            parse_report={"error_phase": "parse"},
+        )
         assert record.status == "failed"
 
     @pytest.mark.asyncio
@@ -362,11 +370,25 @@ class TestIngestJobStatusMachine:
         update_result = MagicMock()
         update_result.rowcount = 1
         job_row = _make_job_row(job_id=job_id, status="skipped_duplicate")
+        meta_result = MagicMock()
+        meta_result.scalar_one_or_none.return_value = {"key": "old"}
         scalar_result = MagicMock()
         scalar_result.scalar_one.return_value = job_row
-        session.execute.side_effect = [update_result, scalar_result]
+        session.execute.side_effect = [meta_result, update_result, scalar_result]
 
-        record = await repo.mark_skipped_duplicate(job_id, "t1", 42, "a" * 64, 1)
+        result = IngestJobSkippedDuplicate(
+            document_id=42,
+            content_hash="a" * 64,
+            version=1,
+            parser_used="pypdf",
+            chunker_used="generic_structured",
+            parent_chunk_count=2,
+            child_chunk_count=5,
+            warnings=[{"level": "info"}],
+            parse_report={"parser_used": "pypdf"},
+            metadata_patch={"skipped_reason": "content_hash_match"},
+        )
+        record = await repo.mark_skipped_duplicate(job_id, "t1", result)
         assert record.status == "skipped_duplicate"
 
 

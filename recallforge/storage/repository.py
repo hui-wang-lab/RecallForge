@@ -294,6 +294,20 @@ class IngestJobSuccess:
 
 
 @dataclass
+class IngestJobSkippedDuplicate:
+    document_id: DocumentId
+    content_hash: str
+    version: int
+    parser_used: str | None = None
+    chunker_used: str | None = None
+    parent_chunk_count: int = 0
+    child_chunk_count: int = 0
+    warnings: list[Any] = field(default_factory=list)
+    parse_report: dict[str, Any] = field(default_factory=dict)
+    metadata_patch: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class QueryLogCreate:
     request_id: RequestId
     tenant_id: TenantId
@@ -1270,6 +1284,9 @@ class IngestJobRepository:
         tenant_id: TenantId,
         error_message: str,
         diagnostics: Mapping[str, Any],
+        *,
+        warnings: Sequence[Any] | None = None,
+        parse_report: Mapping[str, Any] | None = None,
     ) -> IngestJobRecord:
         now = datetime.now(UTC)
         # Merge diagnostics into existing metadata instead of overwriting
@@ -1281,6 +1298,17 @@ class IngestJobRepository:
             )
         )).scalar_one_or_none()
         merged = {**(existing if existing else {}), **dict(diagnostics)}
+        values: dict[str, Any] = {
+            "status": "failed",
+            "error_message": error_message,
+            "metadata_": merged,
+            "finished_at": now,
+            "updated_at": now,
+        }
+        if warnings is not None:
+            values["warnings"] = list(warnings)
+        if parse_report is not None:
+            values["parse_report"] = dict(parse_report)
         stmt = (
             update(RagIngestJob)
             .where(
@@ -1288,13 +1316,7 @@ class IngestJobRepository:
                 RagIngestJob.tenant_id == tenant_id,
                 RagIngestJob.status == "running",
             )
-            .values(
-                status="failed",
-                error_message=error_message,
-                metadata_=merged,
-                finished_at=now,
-                updated_at=now,
-            )
+            .values(**values)
         )
         update_result = await self._session.execute(stmt)
         if update_result.rowcount == 0:
@@ -1312,11 +1334,17 @@ class IngestJobRepository:
         self,
         job_id: JobId,
         tenant_id: TenantId,
-        document_id: DocumentId,
-        content_hash: str,
-        version: int,
+        result: IngestJobSkippedDuplicate,
     ) -> IngestJobRecord:
         now = datetime.now(UTC)
+        existing = (await self._session.execute(
+            select(RagIngestJob.metadata_).where(
+                RagIngestJob.job_id == job_id,
+                RagIngestJob.tenant_id == tenant_id,
+                RagIngestJob.status == "running",
+            )
+        )).scalar_one_or_none()
+        merged = {**(existing if existing else {}), **result.metadata_patch}
         stmt = (
             update(RagIngestJob)
             .where(
@@ -1326,9 +1354,16 @@ class IngestJobRepository:
             )
             .values(
                 status="skipped_duplicate",
-                document_id=document_id,
-                content_hash=content_hash,
-                version=version,
+                document_id=result.document_id,
+                content_hash=result.content_hash,
+                version=result.version,
+                parser_used=result.parser_used,
+                chunker_used=result.chunker_used,
+                parent_chunk_count=result.parent_chunk_count,
+                child_chunk_count=result.child_chunk_count,
+                warnings=result.warnings,
+                parse_report=result.parse_report,
+                metadata_=merged,
                 finished_at=now,
                 updated_at=now,
             )

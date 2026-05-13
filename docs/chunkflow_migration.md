@@ -28,7 +28,7 @@ C:\Users\wanghui\Desktop\工作空间2026\project\ChunkFlow
 ## 目标调用入口
 
 ```python
-from rag.chunking.core.pipeline import PipelineConfig, parse_to_chunk_package
+from recallforge.chunking.core.pipeline import PipelineConfig, parse_to_chunk_package
 
 package = parse_to_chunk_package(
     file_path,
@@ -56,7 +56,7 @@ package = parse_to_chunk_package(
 | `ChildChunk.text` | `rag_chunks.content` | 向量化文本 |
 | `ChildChunk.chunk_type` | `rag_chunks.chunk_type` | 切片类型 |
 | `ChildChunk.template` | `rag_chunks.template` | 使用模板 |
-| `ChildChunk.token_count` | `rag_chunks.token_count` | token 统计 |
+| `ChildChunk.token_count` | `rag_chunks.metadata`（合并到 JSONB） | token 统计；M1 `rag_chunks` 表无独立 `token_count` 列 |
 | `ChildChunk.bbox_refs` | `rag_chunks.bbox_refs` | 版面引用 |
 | `ChildChunk.metadata` | `rag_chunks.metadata` | 扩展元数据 |
 

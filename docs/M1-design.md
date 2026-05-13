@@ -549,6 +549,8 @@ DocumentCreate -> DocumentRecord
 ParentChunkCreate -> ParentChunkRecord
 ChildChunkCreate -> ChildChunkRecord
 IngestJobCreate -> IngestJobRecord
+IngestJobSuccess -> document_id, content_hash, version, parser_used, chunker_used, parent_chunk_count, child_chunk_count, warnings, parse_report
+IngestJobSkippedDuplicate -> document_id, content_hash, version, parser_used, chunker_used, parent_chunk_count, child_chunk_count, warnings, parse_report, metadata_patch
 QueryLogCreate -> QueryLogRecord
 ChunkFilters -> tenant_id, department, access_level, doc_type, status, version, source_uri
 FullTextHit -> chunk_id, document_id, parent_id, rank, score, score_source
@@ -641,8 +643,8 @@ create(input: IngestJobCreate) -> IngestJobRecord
 get(job_id: JobId, tenant_id: TenantId) -> IngestJobRecord | None
 mark_running(job_id: JobId, tenant_id: TenantId) -> IngestJobRecord
 mark_success(job_id: JobId, tenant_id: TenantId, result: IngestJobSuccess) -> IngestJobRecord
-mark_failed(job_id: JobId, tenant_id: TenantId, error_message: str, diagnostics: Mapping[str, Any]) -> IngestJobRecord
-mark_skipped_duplicate(job_id: JobId, tenant_id: TenantId, document_id: DocumentId, content_hash: str) -> IngestJobRecord
+mark_failed(job_id: JobId, tenant_id: TenantId, error_message: str, diagnostics: Mapping[str, Any], *, warnings: Sequence[Any] | None = None, parse_report: Mapping[str, Any] | None = None) -> IngestJobRecord
+mark_skipped_duplicate(job_id: JobId, tenant_id: TenantId, result: IngestJobSkippedDuplicate) -> IngestJobRecord
 list_recent(tenant_id: TenantId, status: str | None, limit: int) -> list[IngestJobRecord]
 ```
 
@@ -652,6 +654,8 @@ list_recent(tenant_id: TenantId, status: str | None, limit: int) -> list[IngestJ
 - `IngestJobCreate` 必须由调用方或 repository 在 API 入口生成 `job_id`（推荐 `uuid4`）。一次导入请求 ↔ 一个 `job_id`，重试由新 `job_id` 表达。
 - `IngestJobRecord` 的对外标识字段为 `job_id`；内部 `id` 仅作为同租户内的物理顺序/外键引用，不应进入 API、日志摘要或客户端可见字段。
 - `tenant_id` 在每个方法中显式传入并参与匹配，防止跨租户读取或越权状态切换。
+- `mark_failed` 的 `warnings` / `parse_report` 是可选结构化诊断字段；调用方没有解析结果时也可以写入最小失败摘要，不能绕过 repository 直接更新 JSONB。
+- `mark_skipped_duplicate` 的 `IngestJobSkippedDuplicate` 包含 `document_id`、`content_hash`、`version` 以及可选的解析诊断字段（`parser_used`、`chunker_used`、`parent_chunk_count`、`child_chunk_count`、`warnings`、`parse_report`）。`metadata_patch` 参数（`dict[str, Any]`，默认 `{}`）会被 repository 合并到 `rag_ingest_jobs.metadata`（JSONB merge），不允许调用方自行拼 SQL 更新 metadata。
 
 ### `QueryLogRepository`
 
