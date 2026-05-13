@@ -6,6 +6,8 @@ requires-python = ">=3.11"
 dependencies = [
     "agno",
     "pgvector",
+    "sqlalchemy[asyncio]>=2.0",
+    "asyncpg",
     "psycopg2-binary",
     "alembic",
     "pydantic>=2.0",

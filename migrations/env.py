@@ -1,10 +1,11 @@
 from logging.config import fileConfig
 
+from alembic import context
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import engine_from_config, pool
 
-from alembic import context
-
 from recallforge.config import get_config
+from recallforge.storage.models import Base
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -18,11 +19,14 @@ config.set_main_option("sqlalchemy.url", get_config().database_url)
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# add your model's MetaData object here
-# for 'autogenerate' support
-# from myapp import mymodel
-# target_metadata = mymodel.Base.metadata
-target_metadata = None
+target_metadata = Base.metadata
+
+
+def render_item(type_, obj, autogen_context):
+    """Register pgvector Vector type so Alembic can render it in migrations."""
+    if type_ == "type" and isinstance(obj, Vector):
+        return "Vector(%d)" % obj.dim, False
+    return None
 
 
 def run_migrations_offline() -> None:
@@ -33,6 +37,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        render_item=render_item,
     )
 
     with context.begin_transaction():
@@ -49,7 +54,9 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection,
+            target_metadata=target_metadata,
+            render_item=render_item,
         )
 
         with context.begin_transaction():
