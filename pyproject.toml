@@ -14,6 +14,7 @@ dependencies = [
     "pydantic-settings>=2.0",
     "python-dotenv",
     "httpx",
+    "pypdf>=3.0.0",
 ]
 
 [dependency-groups]

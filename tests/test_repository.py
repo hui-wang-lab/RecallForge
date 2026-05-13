@@ -518,11 +518,11 @@ class TestChunkFilters:
         assert f.source_uri is None
 
 
-# ── ChildChunkCreate defaults ─────────────────────────────────────
+# ── ChildChunkCreate embedding config ──────────────────────────────
 
 
-class TestChildChunkCreateDefaults:
-    def test_embedding_defaults_match_baseline(self):
+class TestChildChunkCreateEmbeddingConfig:
+    def test_embedding_config_is_explicit(self):
         c = ChildChunkCreate(
             tenant_id="t1",
             parent_id=1,
@@ -535,6 +535,9 @@ class TestChildChunkCreateDefaults:
             department="eng",
             access_level="public",
             source_uri="file:///x.md",
+            embedding_provider="dashscope",
+            embedding_model="text-embedding-v4@1024",
+            embedding_dim=1024,
         )
         assert c.embedding_provider == "dashscope"
         assert c.embedding_model == "text-embedding-v4@1024"

@@ -2,7 +2,7 @@ from logging.config import fileConfig
 
 from alembic import context
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import create_engine, pool
 
 from recallforge.config import get_config
 from recallforge.storage.models import Base
@@ -11,8 +11,9 @@ from recallforge.storage.models import Base
 # access to the values within the .ini file in use.
 config = context.config
 
-# Override sqlalchemy.url from RecallForge settings instead of hard-coding in .ini.
-config.set_main_option("sqlalchemy.url", get_config().database_url)
+# Read DB URL from RecallForge settings, bypassing configparser entirely
+# to avoid % interpolation issues with URL-encoded passwords.
+_db_url = get_config().database_url
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
@@ -35,9 +36,8 @@ def render_item(type_, obj, autogen_context):
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""
-    url = config.get_main_option("sqlalchemy.url")
     context.configure(
-        url=url,
+        url=_db_url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -50,11 +50,7 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
+    connectable = create_engine(_db_url, poolclass=pool.NullPool)
 
     with connectable.connect() as connection:
         context.configure(

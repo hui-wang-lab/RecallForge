@@ -251,17 +251,15 @@ class ChildChunkCreate:
     department: str
     access_level: str
     source_uri: str
+    embedding_provider: str
+    embedding_model: str
+    embedding_dim: int
     version: int = 1
     chunk_type: str = "child"
     template: str | None = None
     heading_path: list[str] | None = None
     page_start: int | None = None
     page_end: int | None = None
-    # TODO(M3): defaults should be derived from EmbeddingProvider config, not hardcoded.
-    # See ADR-0001: "embedding_provider/model/dim 的 chunk 描述必须由 EmbeddingProvider 与列映射推导".
-    embedding_provider: str = "dashscope"
-    embedding_model: str = "text-embedding-v4@1024"
-    embedding_dim: int = 1024
     embedding_metadata: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -555,6 +553,23 @@ class DocumentRepository:
             )
             .order_by(RagDocument.version.desc())
             .limit(1)
+        )
+        row = (await self._session.execute(stmt)).scalar_one_or_none()
+        return _doc_to_record(row) if row else None
+
+    async def lock_active_by_source(
+        self,
+        tenant_id: TenantId,
+        source_uri: str,
+    ) -> DocumentRecord | None:
+        stmt = (
+            select(RagDocument)
+            .where(
+                RagDocument.tenant_id == tenant_id,
+                RagDocument.source_uri == source_uri,
+                RagDocument.status == "active",
+            )
+            .with_for_update()
         )
         row = (await self._session.execute(stmt)).scalar_one_or_none()
         return _doc_to_record(row) if row else None
@@ -871,6 +886,9 @@ class DocumentVersionRepository:
 
 
 class ParentChunkRepository:
+    # Default batch size for bulk inserts to avoid large transaction issues
+    BULK_BATCH_SIZE = 1000
+
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
@@ -878,32 +896,58 @@ class ParentChunkRepository:
         self,
         document_id: DocumentId,
         chunks: Sequence[ParentChunkCreate],
+        *,
+        batch_size: int | None = None,
     ) -> list[ParentChunkRecord]:
-        rows: list[RagParentChunk] = []
+        if not chunks:
+            return []
+
+        batch_size = batch_size or self.BULK_BATCH_SIZE
+        all_records: list[ParentChunkRecord] = []
+
+        # Process in batches to avoid memory issues with large documents
+        for i in range(0, len(chunks), batch_size):
+            batch = chunks[i : i + batch_size]
+            rows = await self._bulk_insert_batch(document_id, batch)
+            all_records.extend([_parent_to_record(r) for r in rows])
+
+        return all_records
+
+    async def _bulk_insert_batch(
+        self,
+        document_id: DocumentId,
+        chunks: Sequence[ParentChunkCreate],
+    ) -> list[RagParentChunk]:
+        """Insert a batch of parent chunks and return the inserted rows."""
+        from sqlalchemy import insert
+
+        # Build mapping dictionaries for each chunk
+        mappings = []
         for c in chunks:
-            row = RagParentChunk(
-                tenant_id=c.tenant_id,
-                document_id=document_id,
-                source_uri=c.source_uri,
-                doc_type=c.doc_type,
-                parent_key=c.parent_key,
-                chunk_index=c.chunk_index,
-                content=c.content,
-                content_hash=c.content_hash,
-                department=c.department,
-                access_level=c.access_level,
-                heading_path=c.heading_path,
-                page_start=c.page_start,
-                page_end=c.page_end,
-                token_count=c.token_count,
-                status="active",
-                version=c.version,
-                metadata_=c.metadata,
-            )
-            self._session.add(row)
-            rows.append(row)
-        await self._session.flush()
-        return [_parent_to_record(r) for r in rows]
+            mappings.append({
+                "tenant_id": c.tenant_id,
+                "document_id": document_id,
+                "source_uri": c.source_uri,
+                "doc_type": c.doc_type,
+                "parent_key": c.parent_key,
+                "chunk_index": c.chunk_index,
+                "content": c.content,
+                "content_hash": c.content_hash,
+                "department": c.department,
+                "access_level": c.access_level,
+                "heading_path": c.heading_path,
+                "page_start": c.page_start,
+                "page_end": c.page_end,
+                "token_count": c.token_count,
+                "status": "active",
+                "version": c.version,
+                "metadata_": c.metadata,
+            })
+
+        # Use insert().returning() for efficient bulk insert with ID retrieval
+        stmt = insert(RagParentChunk).returning(RagParentChunk)
+        result = await self._session.execute(stmt, mappings)
+        return list(result.scalars().all())
 
     async def get(
         self,
@@ -973,6 +1017,9 @@ class ParentChunkRepository:
 
 
 class ChunkRepository:
+    # Default batch size for bulk inserts to avoid large transaction issues
+    BULK_BATCH_SIZE = 1000
+
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
@@ -980,39 +1027,65 @@ class ChunkRepository:
         self,
         document_id: DocumentId,
         chunks: Sequence[ChildChunkCreate],
+        *,
+        batch_size: int | None = None,
     ) -> list[ChildChunkRecord]:
-        rows: list[RagChunk] = []
+        if not chunks:
+            return []
+
+        batch_size = batch_size or self.BULK_BATCH_SIZE
+        all_records: list[ChildChunkRecord] = []
+
+        # Process in batches to avoid memory issues with large documents
+        for i in range(0, len(chunks), batch_size):
+            batch = chunks[i : i + batch_size]
+            rows = await self._bulk_insert_batch(document_id, batch)
+            all_records.extend([_chunk_to_record(r) for r in rows])
+
+        return all_records
+
+    async def _bulk_insert_batch(
+        self,
+        document_id: DocumentId,
+        chunks: Sequence[ChildChunkCreate],
+    ) -> list[RagChunk]:
+        """Insert a batch of child chunks and return the inserted rows."""
+        from sqlalchemy import insert
+
+        # Build mapping dictionaries for each chunk
+        mappings = []
         for c in chunks:
-            row = RagChunk(
-                tenant_id=c.tenant_id,
-                document_id=document_id,
-                parent_id=c.parent_id,
-                parent_key=c.parent_key,
-                chunk_key=c.chunk_key,
-                chunk_index=c.chunk_index,
-                content=c.content,
-                content_hash=c.content_hash,
-                doc_type=c.doc_type,
-                chunk_type=c.chunk_type,
-                template=c.template,
-                department=c.department,
-                access_level=c.access_level,
-                heading_path=c.heading_path,
-                page_start=c.page_start,
-                page_end=c.page_end,
-                source_uri=c.source_uri,
-                version=c.version,
-                status="active",
-                embedding_provider=c.embedding_provider,
-                embedding_model=c.embedding_model,
-                embedding_dim=c.embedding_dim,
-                embedding_metadata=c.embedding_metadata,
-                metadata_=c.metadata,
-            )
-            self._session.add(row)
-            rows.append(row)
-        await self._session.flush()
-        return [_chunk_to_record(r) for r in rows]
+            mappings.append({
+                "tenant_id": c.tenant_id,
+                "document_id": document_id,
+                "parent_id": c.parent_id,
+                "parent_key": c.parent_key,
+                "chunk_key": c.chunk_key,
+                "chunk_index": c.chunk_index,
+                "content": c.content,
+                "content_hash": c.content_hash,
+                "doc_type": c.doc_type,
+                "chunk_type": c.chunk_type,
+                "template": c.template,
+                "department": c.department,
+                "access_level": c.access_level,
+                "heading_path": c.heading_path,
+                "page_start": c.page_start,
+                "page_end": c.page_end,
+                "source_uri": c.source_uri,
+                "version": c.version,
+                "status": "active",
+                "embedding_provider": c.embedding_provider,
+                "embedding_model": c.embedding_model,
+                "embedding_dim": c.embedding_dim,
+                "embedding_metadata": c.embedding_metadata,
+                "metadata_": c.metadata,
+            })
+
+        # Use insert().returning() for efficient bulk insert with ID retrieval
+        stmt = insert(RagChunk).returning(RagChunk)
+        result = await self._session.execute(stmt, mappings)
+        return list(result.scalars().all())
 
     async def get(
         self,

@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     child_max_tokens: int = 450
     child_min_tokens: int = 80
     parent_granularity: str = "chapter"
+    ingest_max_file_bytes: int = 100 * 1024 * 1024
+    ingest_parse_timeout_seconds: int = 120
+    ingest_max_child_chunks_per_document: int = 20_000
 
     # ── Observability ─────────────────────────────────────
     log_level: str = "INFO"
