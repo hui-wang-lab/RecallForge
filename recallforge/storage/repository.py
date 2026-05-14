@@ -115,8 +115,19 @@ class ChildChunkEmbeddingSource:
     tenant_id: TenantId
     document_id: DocumentId
     parent_id: ParentChunkId
+    chunk_key: str
+    parent_key: str
     content: str
-    embedding_model: str
+    doc_type: str
+    chunk_type: str
+    template: str | None
+    department: str
+    access_level: str
+    heading_path: list[str] | None
+    page_start: int | None
+    page_end: int | None
+    source_uri: str
+    version: int
     status: DocumentStatus
 
 
@@ -847,6 +858,9 @@ class DocumentVersionRepository:
             .order_by(RagChunk.id)
         )
         chunks = (await self._session.execute(chunk_stmt)).scalars().all()
+        from recallforge.storage.embedding_columns import DEFAULT_EMBEDDING_COLUMNS
+
+        embedding_columns = DEFAULT_EMBEDDING_COLUMNS
         for c in chunks:
             new_parent_id = old_to_new_parent.get(c.parent_id, c.parent_id)
             new_c = RagChunk(
@@ -872,10 +886,13 @@ class DocumentVersionRepository:
                 embedding_provider=c.embedding_provider,
                 embedding_model=c.embedding_model,
                 embedding_dim=c.embedding_dim,
-                embedding_text_embedding_v4_1024=c.embedding_text_embedding_v4_1024,
                 embedding_metadata=c.embedding_metadata if c.embedding_metadata else {},
                 metadata_=c.metadata_,
             )
+            # Dynamically copy all registered vector columns so that newly
+            # added embedding models are preserved across version restores.
+            for spec in embedding_columns.all_specs():
+                setattr(new_c, spec.column_name, getattr(c, spec.column_name))
             self._session.add(new_c)
 
         await self._session.flush()
@@ -1137,20 +1154,29 @@ class ChunkRepository:
         limit: int,
         tenant_id: TenantId | None = None,
         statuses: Sequence[DocumentStatus] = ("active",),
+        *,
+        columns: Any | None = None,
+        chunk_ids: Sequence[ChunkId] | None = None,
+        force: bool = False,
     ) -> list[ChildChunkEmbeddingSource]:
-        # TODO(M3): column check should be derived from embedding_model -> column mapping,
-        # not hardcoded to the baseline column. See ADR-0001.
-        stmt = (
-            select(RagChunk)
-            .where(
-                RagChunk.status.in_(statuses),
-                RagChunk.embedding_model == embedding_model,
-                RagChunk.embedding_text_embedding_v4_1024.is_(None),
-            )
-            .limit(limit)
-        )
+        if limit <= 0:
+            return []
+        if columns is None:
+            from recallforge.storage.embedding_columns import DEFAULT_EMBEDDING_COLUMNS
+
+            columns = DEFAULT_EMBEDDING_COLUMNS
+        if chunk_ids is not None and not chunk_ids:
+            return []
+        spec = columns.resolve(embedding_model)
+        vector_column = getattr(RagChunk, spec.column_name)
+
+        stmt = select(RagChunk).where(RagChunk.status.in_(statuses)).limit(limit)
+        if not force:
+            stmt = stmt.where(vector_column.is_(None))
         if tenant_id is not None:
             stmt = stmt.where(RagChunk.tenant_id == tenant_id)
+        if chunk_ids is not None:
+            stmt = stmt.where(RagChunk.id.in_(chunk_ids))
         rows = (await self._session.execute(stmt)).scalars().all()
         return [
             ChildChunkEmbeddingSource(
@@ -1158,8 +1184,19 @@ class ChunkRepository:
                 tenant_id=r.tenant_id,
                 document_id=r.document_id,
                 parent_id=r.parent_id,
+                chunk_key=r.chunk_key,
+                parent_key=r.parent_key,
                 content=r.content,
-                embedding_model=r.embedding_model,
+                doc_type=r.doc_type,
+                chunk_type=r.chunk_type,
+                template=r.template,
+                department=r.department,
+                access_level=r.access_level,
+                heading_path=r.heading_path,
+                page_start=r.page_start,
+                page_end=r.page_end,
+                source_uri=r.source_uri,
+                version=r.version,
                 status=r.status,
             )
             for r in rows

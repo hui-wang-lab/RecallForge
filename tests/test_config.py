@@ -7,11 +7,18 @@ from recallforge.config import Settings, get_config
 
 class TestSettings:
     def test_defaults(self):
-        s = Settings(openai_api_key="test-key")
+        s = Settings(
+            openai_api_key="test-key",
+            database_url="postgresql://localhost:5432/recallforge",
+        )
         assert s.database_url == "postgresql://localhost:5432/recallforge"
         assert s.embedding_model == "text-embedding-v4@1024"
         assert s.embedding_dim == 1024
         assert s.embedding_provider == "dashscope"
+        assert s.dashscope_api_key == ""
+        assert s.dashscope_endpoint
+        assert s.embedding_batch_size == 32
+        assert s.embedding_max_retries == 3
         assert s.default_top_k == 30
         assert s.final_top_k == 8
         assert s.child_max_tokens == 450

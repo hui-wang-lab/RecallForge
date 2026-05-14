@@ -26,6 +26,14 @@ class Settings(BaseSettings):
     # Named "openai_api_key" for broad compatibility; maps from env OPENAI_API_KEY.
     openai_api_key: str = ""
     openai_base_url: str = ""
+    dashscope_api_key: str = ""
+    dashscope_endpoint: str = "https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding"
+    dashscope_region: str = ""
+    embedding_batch_size: int = 32
+    embedding_batch_delay_seconds: float = 0.0
+    embedding_requests_per_second: float = 0.0
+    embedding_request_timeout_seconds: float = 60.0
+    embedding_max_retries: int = 3
 
     # ── Reranker ──────────────────────────────────────────
     # When empty, reranker is disabled. M4+ requires explicit configuration;

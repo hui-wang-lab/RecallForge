@@ -16,6 +16,7 @@ from recallforge.storage.models import RagChunk, RagDocument, RagIngestJob, RagP
 from recallforge.storage.repository import (
     ChildChunkCreate,
     ChunkFilters,
+    ChunkRepository,
     DocumentCreate,
     DocumentRepository,
     IngestJobCreate,
@@ -516,6 +517,39 @@ class TestChunkFilters:
         assert f.doc_type is None
         assert f.version is None
         assert f.source_uri is None
+
+
+class TestChunkRepositoryEmbeddingBackfill:
+    @pytest.mark.asyncio
+    async def test_list_for_embedding_backfill_returns_vector_metadata_source_fields(self):
+        session = _make_mock_session()
+        row = _make_chunk_row(
+            chunk_key="child-1",
+            parent_key="parent-1",
+            template="generic_structured",
+            heading_path=["Guide"],
+            page_start=1,
+            page_end=2,
+        )
+        result = MagicMock()
+        result.scalars.return_value.all.return_value = [row]
+        session.execute.return_value = result
+
+        records = await ChunkRepository(session).list_for_embedding_backfill(
+            "text-embedding-v4@1024",
+            limit=10,
+            tenant_id="t1",
+        )
+
+        assert len(records) == 1
+        source = records[0]
+        assert source.chunk_key == "child-1"
+        assert source.parent_key == "parent-1"
+        assert source.doc_type == "markdown"
+        assert source.template == "generic_structured"
+        assert source.heading_path == ["Guide"]
+        assert source.source_uri == "file:///test.md"
+        assert not hasattr(source, "embedding_model")
 
 
 # ── ChildChunkCreate embedding config ──────────────────────────────
