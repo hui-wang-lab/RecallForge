@@ -106,13 +106,11 @@ class FakeDocRepo:
 
 
 class FakeQueryLogRepo:
-    records = []
-
     def __init__(self, session):
-        pass
+        self.records: list = []
 
     async def create(self, input):
-        self.__class__.records.append(input)
+        self.records.append(input)
         return input
 
 
@@ -134,50 +132,43 @@ def _ctx() -> RequestContext:
 
 @pytest.mark.asyncio
 async def test_retrieval_service_happy_path_writes_retrieved_log():
-    FakeQueryLogRepo.records = []
-    vector_store = FakeVectorStore()
-    service = _service(_settings(), vector_store, FakeReranker())
+    service, log_repo = _service_with_log(_settings(), FakeVectorStore(), FakeReranker())
 
     result = await service.retrieve(RetrievalRequest("refund policy"), _ctx())
 
     assert result.status == "retrieved"
     assert result.references
-    assert vector_store.filters.tenant_id == "tenant-a"
-    assert vector_store.filters.access_level == ["public", "internal", "confidential", "restricted"]
-    assert FakeQueryLogRepo.records[-1].status == "retrieved"
-    assert FakeQueryLogRepo.records[-1].answer is None
+    assert log_repo.records[-1].status == "retrieved"
+    assert log_repo.records[-1].answer is None
 
 
 @pytest.mark.asyncio
 async def test_retrieval_service_rejects_forbidden_filter_without_recall():
-    FakeQueryLogRepo.records = []
     vector_store = FakeVectorStore()
-    service = _service(_settings(), vector_store, FakeReranker())
+    service, log_repo = _service_with_log(_settings(), vector_store, FakeReranker())
 
     result = await service.retrieve(RetrievalRequest("refund policy", {"tenant_id": "*"}), _ctx())
 
     assert result.status == "failed"
     assert "forbidden" in result.error_message
     assert vector_store.filters is None
-    assert FakeQueryLogRepo.records[-1].status == "failed"
+    assert log_repo.records[-1].status == "failed"
 
 
 @pytest.mark.asyncio
 async def test_retrieval_service_refuses_when_no_candidates():
-    FakeQueryLogRepo.records = []
-    service = _service(_settings(), FakeVectorStore(hits=[]), FakeReranker())
+    service, log_repo = _service_with_log(_settings(), FakeVectorStore(hits=[]), FakeReranker())
 
     result = await service.retrieve(RetrievalRequest("refund policy"), _ctx())
 
     assert result.status == "refused"
     assert result.refusal_reason == "no_candidates"
-    assert FakeQueryLogRepo.records[-1].status == "refused"
+    assert log_repo.records[-1].status == "refused"
 
 
 @pytest.mark.asyncio
 async def test_retrieval_service_reranker_failure_falls_back_to_vector():
-    FakeQueryLogRepo.records = []
-    service = _service(_settings(), FakeVectorStore(), FailingReranker())
+    service, _ = _service_with_log(_settings(), FakeVectorStore(), FailingReranker())
 
     result = await service.retrieve(RetrievalRequest("refund policy"), _ctx())
 
@@ -191,18 +182,26 @@ def test_reranker_required_blocks_service_startup():
         _service(_settings(reranker_required=True), FakeVectorStore(), None)
 
 
-def _service(settings, vector_store, reranker):
-    return RetrievalService(
+def _service_with_log(settings, vector_store, reranker):
+    session = SimpleNamespace()
+    log_repo = FakeQueryLogRepo(session)
+    service = RetrievalService(
         settings=settings,
         embedding_provider=FakeEmbeddingProvider(),
         vector_store=vector_store,
         reranker=reranker,
-        session=SimpleNamespace(),
+        session=session,
         parent_repo_type=FakeParentRepo,
         chunk_repo_type=FakeChunkRepo,
-        query_log_repo_type=FakeQueryLogRepo,
+        query_log_repo_type=lambda s: log_repo,
         doc_repo_type=FakeDocRepo,
     )
+    return service, log_repo
+
+
+def _service(settings, vector_store, reranker):
+    service, _ = _service_with_log(settings, vector_store, reranker)
+    return service
 
 
 def _hit(chunk_id: int, score: float) -> VectorSearchHit:

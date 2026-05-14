@@ -39,6 +39,8 @@ def test_context_assembler_respects_budget_and_uses_references():
     assert assembled.candidates_included >= 1
     assert assembled.references[0].ref_id == "[1]"
     assert "核心段落" in assembled.context_text
+    for ref in assembled.references:
+        assert ref.ref_id in assembled.context_text
 
 
 def _ranked(chunk_id: int, score: float) -> RankedCandidate:

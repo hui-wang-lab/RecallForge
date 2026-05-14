@@ -69,6 +69,10 @@ class RetrievalService:
         self._refusal_judge = RefusalJudge(settings)
         self._context_assembler = ContextAssembler(settings)
 
+    async def close(self) -> None:
+        if self._reranker is not None and hasattr(self._reranker, "close"):
+            await self._reranker.close()
+
     async def retrieve(self, request: RetrievalRequest, ctx: RequestContext) -> RetrievalResult:
         started = time.perf_counter()
         latencies: dict[str, int] = {}
