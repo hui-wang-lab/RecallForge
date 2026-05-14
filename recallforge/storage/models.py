@@ -34,7 +34,7 @@ class Base(DeclarativeBase):
 ACCESS_LEVELS = ("public", "internal", "confidential", "restricted")
 DOCUMENT_STATUSES = ("active", "superseded", "deleted")
 INGEST_STATUSES = ("pending", "running", "success", "failed", "skipped_duplicate")
-QUERY_STATUSES = ("success", "refused", "failed")
+QUERY_STATUSES = ("success", "retrieved", "refused", "failed")
 SEARCH_MODES = ("vector", "full_text", "hybrid")
 
 
@@ -478,6 +478,7 @@ class RagQueryLog(Base):
         ),
         CheckConstraint(
             "(status = 'success' AND answer IS NOT NULL) "
+            "OR (status = 'retrieved' AND answer IS NULL) "
             "OR (status = 'refused' AND refusal_reason IS NOT NULL) "
             "OR (status = 'failed' AND error_message IS NOT NULL)",
             name="ck_rag_query_logs_status_payload",

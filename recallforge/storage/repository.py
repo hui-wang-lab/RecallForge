@@ -568,6 +568,22 @@ class DocumentRepository:
         row = (await self._session.execute(stmt)).scalar_one_or_none()
         return _doc_to_record(row) if row else None
 
+    async def get_by_ids(
+        self,
+        tenant_id: TenantId,
+        document_ids: Sequence[DocumentId],
+        statuses: Sequence[DocumentStatus] = ("active",),
+    ) -> list[DocumentRecord]:
+        if not document_ids:
+            return []
+        stmt = select(RagDocument).where(
+            RagDocument.tenant_id == tenant_id,
+            RagDocument.id.in_(document_ids),
+            RagDocument.status.in_(statuses),
+        )
+        rows = (await self._session.execute(stmt)).scalars().all()
+        return [_doc_to_record(row) for row in rows]
+
     async def lock_active_by_source(
         self,
         tenant_id: TenantId,
@@ -1586,7 +1602,6 @@ class QueryLogRepository:
         error_message: str,
         latencies_ms: Mapping[str, int],
     ) -> QueryLogRecord:
-        now = datetime.now(UTC)
         stmt = (
             update(RagQueryLog)
             .where(
@@ -1597,10 +1612,36 @@ class QueryLogRepository:
                 status="failed",
                 error_message=error_message,
                 latencies_ms=dict(latencies_ms),
-                updated_at=now,
             )
         )
         await self._session.execute(stmt)
+        row = (await self._session.execute(
+            select(RagQueryLog).where(
+                RagQueryLog.request_id == request_id,
+                RagQueryLog.tenant_id == tenant_id,
+            )
+        )).scalar_one()
+        return _query_log_to_record(row)
+
+    async def update_answer(
+        self,
+        request_id: RequestId,
+        tenant_id: TenantId,
+        answer: str,
+    ) -> QueryLogRecord:
+        stmt = (
+            update(RagQueryLog)
+            .where(
+                RagQueryLog.request_id == request_id,
+                RagQueryLog.tenant_id == tenant_id,
+                RagQueryLog.status == "retrieved",
+            )
+            .values(status="success", answer=answer)
+        )
+        result = await self._session.execute(stmt)
+        if result.rowcount == 0:
+            msg = f"QueryLog {request_id} not found in retrieved state for tenant {tenant_id}"
+            raise ValueError(msg)
         row = (await self._session.execute(
             select(RagQueryLog).where(
                 RagQueryLog.request_id == request_id,

@@ -19,8 +19,12 @@ class TestSettings:
         assert s.dashscope_endpoint
         assert s.embedding_batch_size == 32
         assert s.embedding_max_retries == 3
-        assert s.default_top_k == 30
+        assert s.default_top_k == 50
         assert s.final_top_k == 8
+        assert s.reranker_required is True
+        assert s.min_rerank_score == 0.35
+        assert s.min_vector_score == 0.6
+        assert s.max_context_tokens == 24000
         assert s.child_max_tokens == 450
         assert s.child_min_tokens == 80
         assert s.parent_granularity == "chapter"

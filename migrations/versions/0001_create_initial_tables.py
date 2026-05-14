@@ -320,7 +320,7 @@ def upgrade() -> None:
             name="ck_rag_query_logs_access_level",
         ),
         sa.CheckConstraint(
-            "status IN ('success', 'refused', 'failed')",
+            "status IN ('success', 'retrieved', 'refused', 'failed')",
             name="ck_rag_query_logs_status",
         ),
         sa.CheckConstraint(
@@ -336,6 +336,7 @@ def upgrade() -> None:
         ),
         sa.CheckConstraint(
             "(status = 'success' AND answer IS NOT NULL) "
+            "OR (status = 'retrieved' AND answer IS NULL) "
             "OR (status = 'refused' AND refusal_reason IS NOT NULL) "
             "OR (status = 'failed' AND error_message IS NOT NULL)",
             name="ck_rag_query_logs_status_payload",

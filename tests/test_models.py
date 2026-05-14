@@ -328,7 +328,7 @@ class TestEnumClosure:
         assert INGEST_STATUSES == ("pending", "running", "success", "failed", "skipped_duplicate")
 
     def test_query_statuses_closed(self):
-        assert QUERY_STATUSES == ("success", "refused", "failed")
+        assert QUERY_STATUSES == ("success", "retrieved", "refused", "failed")
 
     def test_search_modes_closed(self):
         assert SEARCH_MODES == ("vector", "full_text", "hybrid")

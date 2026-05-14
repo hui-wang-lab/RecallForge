@@ -36,14 +36,28 @@ class Settings(BaseSettings):
     embedding_max_retries: int = 3
 
     # ── Reranker ──────────────────────────────────────────
-    # When empty, reranker is disabled. M4+ requires explicit configuration;
-    # leaving these blank after M4 will log a warning on every query.
+    # When empty, reranker is disabled. Production requires reranker_required=True.
     reranker_model: str = ""
     reranker_provider: str = ""
+    reranker_top_k: int = 50
+    reranker_api_key: str = ""
+    reranker_endpoint: str = ""
+    reranker_request_timeout_seconds: float = 30.0
+    reranker_max_retries: int = 3
 
     # ── Retrieval ─────────────────────────────────────────
-    default_top_k: int = 30
+    default_top_k: int = 50
     final_top_k: int = 8
+    reranker_required: bool = True
+    min_rerank_score: float = 0.35
+    min_vector_score: float = 0.6
+    min_top1_margin: float = 0.05
+    max_context_tokens: int = 24000
+    query_rewrite_enabled: bool = False
+    hyde_enabled: bool = False
+    min_query_length: int = 2
+    parent_context_window_tokens: int = 2000
+    search_mode: str = "vector"
 
     # ── Chunking ──────────────────────────────────────────
     child_max_tokens: int = 450
