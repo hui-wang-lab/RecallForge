@@ -4,7 +4,6 @@ RecallForge 是一个面向企业级知识库的高质量 RAG（Retrieval-Augmen
 
 ## 技术栈
 
-- **Agent 框架**: Agno
 - **文档切分引擎**: ChunkFlow（parent/child 双层切片）
 - **向量存储**: PostgreSQL + pgvector
 - **配置管理**: pydantic-settings
@@ -33,7 +32,7 @@ uv run pytest
 ```
 recallforge/
   api/               # HTTP API, request/response schemas
-  agents/            # Agno Agent 配置、提示词、工具绑定
+  console/           # 最小测试控制台：上传文件、问答测试、查看引用
   chunking/          # ChunkFlow 解析和切片能力
   embeddings/        # embedding 模型封装、维度配置
   ingest/            # 文档导入、清洗、切片、入库编排

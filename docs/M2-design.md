@@ -8,7 +8,7 @@ M2 的范围严格限定在"原文 + 元数据 + 任务诊断"这一层：
 
 - M2 **只**负责 parent/child 原文、metadata、`content_hash`、版本和任务状态入库。
 - M2 **不**生成 embedding，`rag_chunks.embedding_text_embedding_v4_1024` 列保持 `NULL`，由 M3 通过 `VectorStoreAdapter` 回填。
-- M2 **不**实现 `VectorStoreAdapter`、不实现 Agno Agent、不实现检索 API。这些边界全部由 M3、M4、M5 接管。
+- M2 **不**实现 `VectorStoreAdapter`、不实现答案生成、不实现检索 API。这些边界全部由 M3、M4、M5 接管。
 - M2 **不**覆盖 DOCX / JSON 格式的导入。这两种格式在 ROADMAP M1 `rag_documents.doc_type` 和 AGENTS.md 中列出，但 ChunkFlow 当前没有成熟的 DOCX / JSON 解析路径，且它们不属于 ROADMAP M2 验收标准。DOCX / JSON 的支持延后到 M8 增强解析器阶段，届时可能引入 Docling / MinerU 等增强解析能力一并覆盖。
 
 设计优先级遵循 RecallForge 的北极星：召回质量、引用可追溯、权限隔离和可诊断性优先于吞吐。导入路径上的每一次失败、降级和跳过都必须能够事后复盘。
@@ -69,7 +69,7 @@ recallforge/
     errors.py                     # IngestError / ParserUnavailable / OversizeError 等
 ```
 
-不在 M2 范围：`recallforge/embeddings/`、`recallforge/retrieval/`、`recallforge/agents/`、`recallforge/api/`。
+不在 M2 范围：`recallforge/embeddings/`、`recallforge/retrieval/`、`recallforge/console/`、`recallforge/api/`。
 
 ### `recallforge/chunking/`
 
@@ -747,7 +747,7 @@ M1 `ChildChunkCreate` 当前对 `embedding_provider` / `embedding_model` / `embe
 - 重复导入完全相同的内容时，第二次 job 状态为 `skipped_duplicate`，不生成新 parent/child；`skipped_duplicate` job 必须包含 `parser_used`、`chunker_used`、`parent_chunk_count`、`child_chunk_count`、`warnings`、`parse_report` 等诊断字段；hash 不同则旧版本被 `supersede_source`，新版本以 `version+1` 落地。
 - 解析失败与解析降级都在 `rag_ingest_jobs.parse_report`、`warnings`、`parser_used` 中可复盘；降级链路的单一事实源是 `parse_report.parser_fallback_chain`，不止打印日志。
 - `rag_chunks.embedding_text_embedding_v4_1024` 列全部为 `NULL`，`embedding_metadata` 为 `{}`，等待 M3 回填。
-- M2 不引入 `VectorStoreAdapter`、`PgVectorStore`、Agno Agent、HTTP API；不修改 M1 数据库 schema。M2 不覆盖 DOCX / JSON 格式，延后到 M8。
+- M2 不引入 `VectorStoreAdapter`、`PgVectorStore`、答案生成、HTTP API；不修改 M1 数据库 schema。M2 不覆盖 DOCX / JSON 格式，延后到 M8。
 - 单元测试覆盖适配层映射、hash 规范化、配置注入与状态机分支；集成测试覆盖至少 3 种格式 + 重复导入 + 版本升级 + 解析降级。
 - `IngestService` 在 job 状态写入终态后向上抛出类型化异常，M5 可据此映射 HTTP 状态码。异常类型定义在 `recallforge/ingest/errors.py`。
 - `IngestService` 与 ChunkFlow 之间没有反向依赖；适配层是 `ChunkPackage` → repository create dataclass / `ChildChunkDraft` 的唯一桥。

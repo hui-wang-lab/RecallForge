@@ -2,12 +2,12 @@
 
 ## 背景与目标
 
-M4 的目标是构建 RecallForge 第一版强召回检索链路：从用户问题出发，经过 Query Understanding、服务端权限 filter 构造、vector recall、rerank、parent expansion、上下文组装和 references 组装，输出可追溯、可复盘、不越权的检索结果，为 M5 的 Agno Agent 问答和 M6 的召回评测提供完整的检索服务层。
+M4 的目标是构建 RecallForge 第一版强召回检索链路：从用户问题出发，经过 Query Understanding、服务端权限 filter 构造、vector recall、rerank、parent expansion、上下文组装和 references 组装，输出可追溯、可复盘、不越权的检索结果，为 M5 的 Knowledge API、测试台和 M6 的召回评测提供完整的检索服务层。
 
 M4 的范围严格限定在"检索链路"这一层：
 
 - M4 **负责** Query Understanding、服务端 metadata filter 构造、vector recall（调用 M3 `VectorStoreAdapter.search()`）、reranker 抽象与默认 `qwen3-rerank` 实现、parent chunk 回查、上下文组装与截断、references 组装、拒答判定、查询日志写入。
-- M4 **不负责** Agno Agent 配置与 Tool 封装、HTTP API 层、鉴权中间件、`RequestContext` 的 HTTP 入口创建。这些由 M5 接管。
+- M4 **不负责**答案生成、HTTP API 层、鉴权中间件、测试页面、`RequestContext` 的 HTTP 入口创建。这些由 M5 接管。
 - M4 **不负责** 评测集构造、eval CLI、指标计算脚本。这些由 M6 接管。
 - M4 **不修改** M3 的 `VectorStoreAdapter` 接口签名、`PgVectorStore` 实现、`EmbeddingProvider` 接口或 ADR-0001 多列存储决策。M4 是 M3 的纯消费方。
 - M4 需要新增一次数据库迁移：在 `rag_query_logs` 中引入 `retrieved` 状态，并调整 `ck_rag_query_logs_status_payload` CHECK 约束以适配 M4 写入 `answer=NULL` 的 `retrieved` 记录（详见"查询日志"章节）。`rag_query_logs` 表结构已在 M1 创建，M4 只追加状态枚举和约束变更。
@@ -48,7 +48,7 @@ M4 的范围严格限定在"检索链路"这一层：
 - 上下文组装必须有明确 token 预算。`max_context_tokens` 初版默认 `24000`，不得超过当前 LLM 的安全上下文预算。
 - references 编号在上下文组装阶段生成，使用稳定格式 `[1]`、`[2]`；答案中的引用只能使用组装阶段的编号，不允许模型自行发明。
 - 查询日志必须记录完整决策链路，便于 M6 评测和事后复盘。日志不得包含跨租户 chunk 原文。
-- M4 不引入 Agno Agent、HTTP 端点或鉴权中间件。M4 的输入是 `RetrievalRequest` dataclass + `RequestContext`，输出是 `RetrievalResult` dataclass。
+- M4 不引入答案生成、HTTP 端点或鉴权中间件。M4 的输入是 `RetrievalRequest` dataclass + `RequestContext`，输出是 `RetrievalResult` dataclass。
 - `user_id` 只用于查询日志审计，不参与 metadata filter 构造，不进入 `VectorSearchFilter`。
 - AGENTS.md 不可破坏约束第 6 条要求"向量召回结果必须经过 reranker，再进入最终回答上下文"。M4 对此约束的实现策略：（a）生产路径中 `reranker_model` 为空时，启动 preflight 即报错，不允许检索服务启动；（b）reranker 运行时失败（非 429 重试耗尽、非临时错误）时，允许降级到 vector score 排序并记录 `reranker_fallback=True` 和 `score_source="vector"`，但必须在 query log 的 warnings 中显式标注降级；（c）测试环境可使用 `FakeRerankerProvider`，不需要走降级路径。
 
@@ -697,7 +697,7 @@ class ReferenceBuilder:
 3. 每个 `Reference` 必须包含 `document_id`、`chunk_id`、`parent_id`、`parent_key`、`source_uri`、`doc_type`、`page_start`、`page_end`、`heading_path`、`version`、`rerank_score`、`vector_score`、`child_chunks`。
 4. `document_title` 从 `document_titles` 映射填充。如果映射中不存在对应 `document_id`，`document_title=None`。
 5. references 使用结构化字段输出，**不**从答案文本中反向解析引用。
-6. M5 生成答案时，Agent instructions 中约束模型只能使用 `ReferenceBuilder` 分配的 `[1]`、`[2]` 编号引用；不允许模型自行发明引用。
+6. M5 生成答案时，答案生成提示词中约束模型只能使用 `ReferenceBuilder` 分配的 `[1]`、`[2]` 编号引用；不允许模型自行发明引用。
 
 ## Hybrid Search 钩子
 
@@ -916,12 +916,12 @@ def default_audit_log_hook(event: str, context: dict[str, Any]) -> None:
 
 ### M4 留给 M5 的接口
 
-- `RetrievalService.retrieve(request, ctx) -> RetrievalResult` 是 M5 受控 Agno Tool `search_internal_kb` 的核心实现入口。
-- M5 Tool 实现内部从 `ContextVar` 读取 `RequestContext`，构造 `RetrievalRequest`，调用 `RetrievalService.retrieve()`。
-- M5 不应在 Tool 内直接调用 `VectorStoreAdapter.search()` 或 `EmbeddingProvider.embed_query()`。
-- `RetrievalResult.context_text` 是 M5 传给 LLM 的上下文内容。
+- `RetrievalService.retrieve(request, ctx) -> RetrievalResult` 是 M5 Knowledge API 的核心实现入口。
+- M5 API 服务内部从 `ContextVar` 读取 `RequestContext`，构造 `RetrievalRequest`，调用 `RetrievalService.retrieve()`。
+- M5 不应在 API 或测试台内直接调用 `VectorStoreAdapter.search()` 或 `EmbeddingProvider.embed_query()`。
+- `RetrievalResult.context_text` 是 M5 传给可选答案生成服务的上下文内容。
 - `RetrievalResult.references` 是 M5 组装回答时的引用来源。
-- M5 在 Agent 生成答案后，通过 `QueryLogRepository.update_answer(request_id, tenant_id, answer)` 回写 `answer` 字段，并将 `status` 从 `retrieved` 更新为 `success`。M4 需在 `QueryLogRepository` 中新增此方法。
+- M5 在可选答案生成完成后，通过 `QueryLogRepository.update_answer(request_id, tenant_id, answer)` 回写 `answer` 字段，并将 `status` 从 `retrieved` 更新为 `success`。M4 需在 `QueryLogRepository` 中新增此方法。
 
 ### M4 留给 M6 的接口
 
@@ -931,11 +931,11 @@ def default_audit_log_hook(event: str, context: dict[str, Any]) -> None:
 - `SearchConfig` 记录当前检索的全部配置，M6 评测报告可直接引用。
 - query log 中记录的 `hit_summary`、`selected_references`、`latencies_ms`、`metadata` 可用于 M6 召回失败归因。
 
-### M4 不提供给 Agent 的能力
+### M4 不提供给上层应用的能力
 
-- M4 不暴露 `VectorStoreAdapter` 或 `PgVectorStore` 给 Agno Agent。
-- Agent 不允许直接调用 `RetrievalService` 的内部方法（如 `_vector_recall()`、`_rerank()`）。
-- M5 的受控 Tool 是 Agent 与检索链路之间的唯一桥梁。
+- M4 不暴露 `VectorStoreAdapter` 或 `PgVectorStore` 给上层应用。
+- 上层应用不允许直接调用 `RetrievalService` 的内部方法（如 `_vector_recall()`、`_rerank()`）。
+- M5 的 Knowledge API 是上层应用与检索链路之间的唯一桥梁。
 
 ## 测试策略
 
@@ -1069,7 +1069,7 @@ def default_audit_log_hook(event: str, context: dict[str, Any]) -> None:
 
 ## 已知限制
 
-- `query_rewrite_enabled` 和 `hyde_enabled` 初版默认关闭。M4 预留开关和接口，但不实现 LLM 调用。实际 query rewrite 和 HyDE 需要在 M5 Agent 可用后（或引入独立 LLM 客户端后）才能完整实现。
+- `query_rewrite_enabled` 和 `hyde_enabled` 初版默认关闭。M4 预留开关和接口，但不实现 LLM 调用。实际 query rewrite 和 HyDE 需要在 M5 可选答案生成或独立 LLM 客户端可用后才能完整实现。
 - `date_range` filter 预留但不生效。`rag_chunks` 没有独立的文档日期列，需要 M8 在 metadata JSONB 或新增列中支持。
 - reranker 运行时降级到 vector score 排序时，M4 使用独立的 `min_vector_score` 做拒答判定，但 cosine similarity 与 rerank score 尺度不同，`min_vector_score=0.6` 为初始建议值，必须通过 M6 评测校准。
 - parent 超长截断使用子串匹配定位 child 在 parent 中的位置，对于 postprocess 修改过的 child 文本可能匹配不到。Fallback 策略：按 `chunk_index` 等比例定位，取前后窗口。
@@ -1095,7 +1095,7 @@ def default_audit_log_hook(event: str, context: dict[str, Any]) -> None:
 - 知识库外问题不会强答：`RefusalJudge` 在证据不足时返回 `should_refuse=True`。
 - 所有配置项（top_k、final_top_k、min_rerank_score、min_vector_score、min_top1_margin、max_context_tokens、query_rewrite_enabled、hyde_enabled、reranker_required）都可配置。
 - `rag_query_logs` 支持 `retrieved` 状态，M4 写入 `status="retrieved"` + `answer=NULL`，M5 生成答案后更新为 `status="success"`。
-- M4 不实现 Agno Agent、HTTP API 或鉴权中间件；这些由 M5 接管。
+- M4 不实现答案生成、HTTP API 或鉴权中间件；这些由 M5 接管。
 - M4 不实现评测集、eval CLI 或指标计算；这些由 M6 接管。
 - 单元测试覆盖 Query Understanding、filter 构造、reranker、拒答（双轨阈值）、parent expansion、上下文组装、references 和服务编排；集成测试覆盖端到端检索、权限隔离和 `retrieved` 状态落库。
 

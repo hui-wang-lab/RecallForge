@@ -7,7 +7,7 @@ M3 的目标是建立 RecallForge 的可替换向量库边界：上游消费 M2 
 M3 的范围严格限定在"embedding 生成、向量写入、向量检索、向量删除同步和维度校验"这一层：
 
 - M3 **负责** `EmbeddingProvider` 抽象、阿里百炼 / DashScope embedding provider、`VectorStoreAdapter` protocol、`PgVectorStore`、embedding 批量回填、多模型列路由、启动预检和维度校验。
-- M3 **不负责** Query Understanding、服务端权限策略计算、rerank、parent expansion、references 组装、Agno Agent 或 HTTP API。这些由 M4 / M5 接管。
+- M3 **不负责** Query Understanding、服务端权限策略计算、rerank、parent expansion、references 组装、答案生成或 HTTP API。这些由 M4 / M5 接管。
 - M3 的 `search()` 只返回 child chunk 级 vector hits，`score_source` 初版固定为 `vector`，但接口保留 `search_mode`，为 M4 hybrid search 和后续 BM25 / RRF 预留。
 - M3 不修改 ADR-0001 的多列存储决策。新增 embedding 模型只能新增向量列和列映射，不允许原地替换既有向量列维度。
 
@@ -793,11 +793,11 @@ WHERE n.nspname = current_schema()
 - `VectorSearchHit` 中保留 `score`、`score_source`、`rank` 和 metadata。M4 引入 rerank 后可追加 `raw_rank`。
 - M4 负责 Query Understanding、服务端权限 filter 构造、rerank、parent lookup、context assembly、references 和 query log。
 
-### M3 不提供给 M5 / Agent 的能力
+### M3 不提供给 M5 / 上层应用的能力
 
-- M3 不暴露 pgvector store 给 Agno Agent。
-- Agent 不允许直接持有 `PgVectorStore` 或任何 VectorDB 句柄。
-- M5 的受控 Tool 必须调用 M4 retrieval service，而不是直接调用 M3 `search()`。
+- M3 不暴露 pgvector store 给上层应用。
+- 上层应用不允许直接持有 `PgVectorStore` 或任何 VectorDB 句柄。
+- M5 的 API 服务必须调用 M4 retrieval service，而不是直接调用 M3 `search()`。
 
 ## 错误处理与边界条件
 
@@ -876,7 +876,7 @@ M3 的错误信息必须包含可定位字段，例如 `embedding_model`、`colu
 M3 需要一个轻量测试防止 pgvector SQL 散落：
 
 - 允许 `recallforge/storage/pgvector_store.py` 和 migration 文件包含 pgvector 距离操作符、向量列更新。
-- 禁止 `recallforge/ingest/`、`recallforge/retrieval/`、`recallforge/agents/`、`recallforge/api/` 直接引用 `embedding_text_embedding_v4_1024` 或 `<=>`。
+- 禁止 `recallforge/ingest/`、`recallforge/retrieval/`、`recallforge/console/`、`recallforge/api/` 直接引用 `embedding_text_embedding_v4_1024` 或 `<=>`。
 - `ChunkRepository.list_for_embedding_backfill()` 可以引用列属性，但必须通过 `EmbeddingColumnRegistry` 解析后访问。
 
 ## 实现文件清单
@@ -917,7 +917,7 @@ M3 需要一个轻量测试防止 pgvector SQL 散落：
 - 启动预检覆盖 provider 配置、DashScope region / endpoint、列路由、SQLAlchemy 模型、live DB `vector(<dim>)` 和 active chunk 描述字段。
 - 任意维度错配都会 fail-fast，并给出 provider、model、column、expected_dim、actual_dim。
 - 单元测试覆盖 provider、列路由、metadata 白名单、preflight、backfill；集成测试覆盖 pgvector upsert/search/delete 和 filters。
-- M3 不实现 rerank、parent expansion、references、Agno Tool 或 HTTP API；这些能力留给 M4 / M5。
+- M3 不实现 rerank、parent expansion、references、答案生成或 HTTP API；这些能力留给 M4 / M5。
 
 ## 自检：对照 ROADMAP M3 验收标准
 
@@ -928,4 +928,3 @@ M3 需要一个轻量测试防止 pgvector SQL 散落：
 | metadata 中包含权限字段、版本字段、状态字段和 parent-child 关联字段 | "Metadata 白名单"表完整列出 `tenant_id`、`department`、`access_level`、`version`、`status`、`chunk_id`、`parent_id`、`parent_key` 等字段；`VectorChunk` / `VectorSearchHit` 章节约束只使用白名单 |
 | embedding 维度不匹配时失败并给出明确错误 | `EmbeddingProvider` 维度约束；"维度校验与启动预检"全章；错误处理表；测试策略 `test_vector_preflight.py` 和 pgvector 集成测试 |
 | 可以针对同一批 chunk 重建指定 embedding 模型的向量 | "Embedding 批量回填"中 `BackfillRequest.embedding_model`、`chunk_ids`、`force=True`；测试策略 `test_embedding_backfill.py`；M3 完成定义第 6 条 |
-

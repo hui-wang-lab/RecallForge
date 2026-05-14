@@ -4,7 +4,6 @@ version = "0.1.0"
 description = "High-quality RAG system with recall-first design"
 requires-python = ">=3.11"
 dependencies = [
-    "agno",
     "pgvector",
     "sqlalchemy[asyncio]>=2.0",
     "asyncpg",
