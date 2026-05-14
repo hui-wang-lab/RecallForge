@@ -131,6 +131,7 @@ def _make_parent(
         text=text,
         page_span=(min(pages), max(pages)),
         source_block_ids=source_block_ids,
+        metadata={"token_count": estimate_tokens(text)},
     )
 
 
@@ -192,4 +193,3 @@ def _chunk_type(blocks: list[Block]) -> str:
 
 def _token_count(blocks: list[Block]) -> int:
     return estimate_tokens("\n\n".join(block.markdown or block.text for block in blocks))
-

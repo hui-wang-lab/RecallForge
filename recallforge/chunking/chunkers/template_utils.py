@@ -36,16 +36,19 @@ def make_parent_from_blocks(
     pages = [block.page_number for block in group.blocks] or [1]
     section_key = stable_hash("template-section", document.document_id, group.key)
     heading_path = group.heading_path or [group.title or "Document"]
+    text = "\n\n".join(block.markdown or block.text for block in group.blocks if block.text.strip())
+    metadata = dict(group.metadata)
+    metadata.setdefault("token_count", estimate_tokens(text))
     return ParentChunk(
         parent_id=parent_id(document.document_id, section_key),
         document_id=document.document_id,
         section_id=section_key,
         heading_path=heading_path,
         title=group.title or heading_path[-1],
-        text="\n\n".join(block.markdown or block.text for block in group.blocks if block.text.strip()),
+        text=text,
         page_span=(min(pages), max(pages)),
         source_block_ids=[block.block_id for block in group.blocks],
-        metadata=dict(group.metadata),
+        metadata=metadata,
     )
 
 
@@ -147,4 +150,3 @@ def group_blocks_by_heading(
 
 def token_count(blocks: list[Block]) -> int:
     return estimate_tokens("\n\n".join(block.markdown or block.text for block in blocks))
-
