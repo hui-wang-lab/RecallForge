@@ -68,16 +68,19 @@
             <div class="section-header">
               <div class="section-bar"></div>
               <div>
-                <h2>知识库治理</h2>
-                <p>管理知识库、单库文件和治理任务。</p>
+                <h2>知识库管理</h2>
+                <p>管理知识库、文档和导入任务。</p>
               </div>
             </div>
 
             <div class="toolbar-row">
-              <button type="button" class="primary-btn compact" id="refresh-kbs">刷新</button>
+              <button type="button" class="primary-btn compact" id="refresh-kbs">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M2 8a6 6 0 0110.47-4M14 8a6 6 0 01-10.47 4"/><path d="M12 2v2.5H9.5M4 14v-2.5h2.5"/></svg>
+                刷新
+              </button>
               <form id="kb-create-form" class="inline-form">
                 <input id="kb-name" type="text" placeholder="新知识库名称" required />
-                <button type="submit" class="primary-btn compact">创建</button>
+                <button type="submit" class="primary-btn compact">创建知识库</button>
               </form>
             </div>
 
@@ -92,17 +95,137 @@
 
               <section class="panel">
                 <div class="panel-head">
-                  <h3>文件与任务</h3>
-                  <button type="button" class="icon-btn" id="reindex-kb" title="Reindex">
-                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M2 8a6 6 0 0110.47-4M14 8a6 6 0 01-10.47 4"/><path d="M12 2v2.5H9.5M4 14v-2.5h2.5"/></svg>
-                  </button>
+                  <h3>文档管理</h3>
+                  <div class="panel-actions">
+                    <button type="button" class="icon-btn" id="upload-to-kb" title="上传文档">
+                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M8 11V3m0 0L5 6m3-3l3 3"/><path d="M2 11v2a1 1 0 001 1h10a1 1 0 001-1v-2"/></svg>
+                    </button>
+                    <button type="button" class="icon-btn" id="refresh-docs" title="刷新文档">
+                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M2 8a6 6 0 0110.47-4M14 8a6 6 0 01-10.47 4"/><path d="M12 2v2.5H9.5M4 14v-2.5h2.5"/></svg>
+                    </button>
+                    <button type="button" class="icon-btn" id="reindex-kb" title="重新索引">
+                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M2 8a6 6 0 0110.47-4M14 8a6 6 0 01-10.47 4"/><path d="M12 2v2.5H9.5M4 14v-2.5h2.5"/></svg>
+                    </button>
+                  </div>
                 </div>
-                <div id="kb-detail" class="detail-empty">选择一个知识库查看文件。</div>
+                <div id="kb-detail" class="kb-detail"></div>
                 <div id="kb-documents" class="doc-list"></div>
               </section>
             </div>
           </div>
         </section>
+
+        <!-- Upload Modal -->
+        <div id="upload-modal" class="modal-overlay" style="display:none">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h3>上传文档到 <span id="upload-kb-name"></span></h3>
+              <button type="button" class="modal-close" id="modal-close">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+              </button>
+            </div>
+            <div class="modal-body">
+              <form id="upload-form" class="upload-card">
+                <div class="drop-zone" id="drop-zone">
+                  <div class="drop-zone-content" id="drop-zone-content">
+                    <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M24 32V12m0 0l-7 7m7-7l7 7"/><path d="M8 30v6a4 4 0 004 4h24a4 4 0 004-4v-6"/></svg>
+                    <p>拖拽文件到此处，或 <label for="file" class="file-label">点击选择文件</label></p>
+                    <span class="drop-hint">支持 Markdown、PDF、TXT、DOCX、CSV</span>
+                    <input id="file" name="file" type="file" required hidden />
+                    <span class="file-name" id="file-name"></span>
+                  </div>
+                  <div class="upload-progress" id="upload-progress">
+                    <span class="progress-label" id="progress-label">上传中… 0%</span>
+                    <div class="progress-bar-track">
+                      <div class="progress-bar-fill" id="progress-fill"></div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="form-grid">
+                  <div class="field full">
+                    <label for="source-uri">Source URI (可选)</label>
+                    <input id="source-uri" name="source_uri" type="text" placeholder="docs/handbook.md" />
+                  </div>
+                  <div class="field">
+                    <label for="doc-type">文档类型 (可选)</label>
+                    <input id="doc-type" name="doc_type" type="text" placeholder="自动识别" />
+                  </div>
+                  <div class="field">
+                    <label for="title">文档标题 (可选)</label>
+                    <input id="title" name="title" type="text" placeholder="知识手册" />
+                  </div>
+                </div>
+
+                <div class="modal-footer">
+                  <button type="button" class="secondary-btn" id="modal-cancel">取消</button>
+                  <button type="submit" class="primary-btn" id="upload-submit">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 11V3m0 0L5 6m3-3l3 3"/><path d="M2 11v2a1 1 0 001 1h10a1 1 0 001-1v-2"/></svg>
+                    提交导入
+                  </button>
+                </div>
+              </form>
+
+              <!-- Upload Result -->
+              <div id="upload-result" class="upload-result" style="display:none">
+                <div class="result-card" id="result-card">
+                  <div class="result-card-bar"></div>
+                  <div class="result-card-body">
+                    <div class="result-card-head">
+                      <h3>导入结果</h3>
+                      <span id="result-status-tag" class="result-tag" style="display:none"></span>
+                    </div>
+
+                    <div class="phase-stepper" id="phase-stepper">
+                      <div class="phase-step" data-phase="uploading">
+                        <div class="phase-dot" id="dot-uploading"></div>
+                        <span class="phase-label">上传</span>
+                      </div>
+                      <div class="phase-step" data-phase="processing">
+                        <div class="phase-dot" id="dot-processing"></div>
+                        <span class="phase-label">解析切片</span>
+                      </div>
+                      <div class="phase-step" data-phase="embedding">
+                        <div class="phase-dot" id="dot-embedding"></div>
+                        <span class="phase-label">Embedding</span>
+                      </div>
+                      <div class="phase-step" data-phase="complete">
+                        <div class="phase-dot" id="dot-complete"></div>
+                        <span class="phase-label">完成</span>
+                      </div>
+                    </div>
+
+                    <dl class="result-fields" id="result-fields" style="display:none"></dl>
+
+                    <details style="margin-top:12px" id="raw-details">
+                      <summary style="cursor:pointer; font-size:12px; color:var(--muted); user-select:none">原始 JSON</summary>
+                      <pre id="job-output" class="output-block small" style="margin-top:8px"></pre>
+                    </details>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Delete Confirmation Modal -->
+        <div id="delete-modal" class="modal-overlay" style="display:none">
+          <div class="modal-content modal-sm">
+            <div class="modal-header">
+              <h3>确认删除</h3>
+              <button type="button" class="modal-close" id="delete-modal-close">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+              </button>
+            </div>
+            <div class="modal-body">
+              <p class="delete-warning">您即将删除文档 <strong id="delete-doc-name"></strong>，此操作不可恢复。</p>
+              <div class="delete-actions">
+                <button type="button" class="secondary-btn" id="delete-cancel">取消</button>
+                <button type="button" class="danger-btn" id="delete-confirm">确认删除</button>
+              </div>
+            </div>
+          </div>
+        </div>
 
         <!-- Page: 智能问答 -->
         <section class="page active" id="page-answer">
@@ -125,6 +248,23 @@
                   <pre id="answer-output" class="output-block"></pre>
                 </div>
               </div>
+              <div class="result-card">
+                <div class="result-card-bar"></div>
+                <div class="result-card-body">
+                  <div class="result-card-head">
+                    <h3>处理流程</h3>
+                    <span id="pipeline-score" class="quality-pill neutral">等待评估</span>
+                  </div>
+                  <div id="pipeline-output" class="pipeline-flow"></div>
+                </div>
+              </div>
+              <div class="result-card secondary">
+                <div class="result-card-bar"></div>
+                <div class="result-card-body">
+                  <h3>质量判断</h3>
+                  <div id="diagnostic-output" class="diagnostic-grid"></div>
+                </div>
+              </div>
               <div class="result-card secondary">
                 <div class="result-card-bar"></div>
                 <div class="result-card-body">
@@ -136,94 +276,23 @@
           </div>
         </section>
 
-        <!-- Page: 文档导入 -->
+        <!-- Page: 文档导入 (已移至知识库模块) -->
         <section class="page" id="page-upload">
           <div class="page-body">
             <div class="section-header">
               <div class="section-bar"></div>
               <div>
                 <h2>文档导入</h2>
-                <p>上传文档并触发解析、切片和 embedding 回填。</p>
+                <p>请先在左侧导航选择知识库，然后在知识库页面点击上传按钮。</p>
               </div>
             </div>
-
-            <form id="upload-form" class="upload-card">
-              <div class="drop-zone" id="drop-zone">
-                <div class="drop-zone-content" id="drop-zone-content">
-                  <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M24 32V12m0 0l-7 7m7-7l7 7"/><path d="M8 30v6a4 4 0 004 4h24a4 4 0 004-4v-6"/></svg>
-                  <p>拖拽文件到此处，或 <label for="file" class="file-label">点击选择文件</label></p>
-                  <span class="drop-hint">支持 Markdown、PDF、TXT、DOCX、CSV</span>
-                  <input id="file" name="file" type="file" required hidden />
-                  <span class="file-name" id="file-name"></span>
-                </div>
-                <div class="upload-progress" id="upload-progress">
-                  <span class="progress-label" id="progress-label">上传中… 0%</span>
-                  <div class="progress-bar-track">
-                    <div class="progress-bar-fill" id="progress-fill"></div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="form-grid">
-                <div class="field full">
-                  <label for="source-uri">Source URI</label>
-                  <input id="source-uri" name="source_uri" type="text" placeholder="docs/handbook.md" />
-                </div>
-                <div class="field">
-                  <label for="doc-type">文档类型</label>
-                  <input id="doc-type" name="doc_type" type="text" placeholder="markdown" />
-                </div>
-                <div class="field">
-                  <label for="title">文档标题</label>
-                  <input id="title" name="title" type="text" placeholder="知识手册" />
-                </div>
-              </div>
-
-              <button type="submit" class="primary-btn">
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 11V3m0 0L5 6m3-3l3 3"/><path d="M2 11v2a1 1 0 001 1h10a1 1 0 001-1v-2"/></svg>
-                提交导入
-              </button>
-            </form>
-
-            <div class="result-card" style="margin-top:28px">
-              <div class="result-card-bar"></div>
-              <div class="result-card-body">
-                <div class="result-card-head">
-                  <h3>导入结果</h3>
-                  <div style="display:flex; gap:8px; align-items:center;">
-                    <span id="result-status-tag" class="result-tag" style="display:none"></span>
-                    <button type="button" class="icon-btn" id="refresh-job" title="刷新任务状态">
-                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M2 8a6 6 0 0110.47-4M14 8a6 6 0 01-10.47 4"/><path d="M12 2v2.5H9.5M4 14v-2.5h2.5"/></svg>
-                    </button>
-                  </div>
-                </div>
-
-                <div class="phase-stepper" id="phase-stepper" style="display:none">
-                  <div class="phase-step" data-phase="uploading">
-                    <div class="phase-dot" id="dot-uploading"></div>
-                    <span class="phase-label">上传</span>
-                  </div>
-                  <div class="phase-step" data-phase="processing">
-                    <div class="phase-dot" id="dot-processing"></div>
-                    <span class="phase-label">解析切片</span>
-                  </div>
-                  <div class="phase-step" data-phase="embedding">
-                    <div class="phase-dot" id="dot-embedding"></div>
-                    <span class="phase-label">Embedding</span>
-                  </div>
-                  <div class="phase-step" data-phase="complete">
-                    <div class="phase-dot" id="dot-complete"></div>
-                    <span class="phase-label">完成</span>
-                  </div>
-                </div>
-
-                <dl class="result-fields" id="result-fields" style="display:none"></dl>
-
-                <details style="margin-top:12px" id="raw-details">
-                  <summary style="cursor:pointer; font-size:12px; color:var(--muted); user-select:none">原始 JSON</summary>
-                  <pre id="job-output" class="output-block small" style="margin-top:8px"></pre>
-                </details>
-              </div>
+            <div class="empty-state">
+              <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="12" y="8" width="40" height="48" rx="4" />
+                <path d="M24 24h16M24 32h16M24 40h10" />
+              </svg>
+              <p>文档导入功能已整合到知识库模块</p>
+              <button type="button" class="primary-btn" id="go-to-kb">前往知识库</button>
             </div>
           </div>
         </section>
