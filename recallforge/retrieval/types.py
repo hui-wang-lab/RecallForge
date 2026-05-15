@@ -117,6 +117,7 @@ class HitSummary:
     rerank_score: float | None = None
     score_source: str = "vector"
     selected: bool = False
+    content_snippet: str | None = None
 
 
 @dataclass(frozen=True)

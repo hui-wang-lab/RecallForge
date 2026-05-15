@@ -185,6 +185,7 @@ class HitSummaryResponse(StrictModel):
     rerank_score: float | None = None
     score_source: str
     selected: bool = False
+    content_snippet: str | None = None
 
 
 class IngestJobResponse(StrictModel):

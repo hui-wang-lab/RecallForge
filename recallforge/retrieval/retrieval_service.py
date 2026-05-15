@@ -133,6 +133,7 @@ class RetrievalService:
             with _timed(latencies, "chunk_read_ms"):
                 chunks = await self._chunk_repo.get_by_ids(ctx.tenant_id, [hit.chunk_id for hit in vector_hits])
             chunks_by_id = {chunk.id: chunk for chunk in chunks}
+            hit_summary = _attach_content_snippets(hit_summary, chunks_by_id)
             vector_hits = [hit for hit in vector_hits if hit.chunk_id in chunks_by_id]
 
             ranked, score_source = await self._rerank_or_fallback(
@@ -428,6 +429,16 @@ def _summary_from_hit(hit: VectorSearchHit) -> HitSummary:
     )
 
 
+def _attach_content_snippets(summaries: Sequence[HitSummary], chunks_by_id: dict[int, Any]) -> list[HitSummary]:
+    enriched: list[HitSummary] = []
+    for summary in summaries:
+        chunk = chunks_by_id.get(summary.chunk_id)
+        if chunk is None:
+            continue
+        enriched.append(HitSummary(**{**asdict(summary), "content_snippet": _content_snippet(chunk.content)}))
+    return enriched
+
+
 def _merge_rerank_summary(summaries: Sequence[HitSummary], ranked: Sequence[RankedCandidate]) -> list[HitSummary]:
     reranked_by_id = {item.chunk_id: item for item in ranked}
     merged: list[HitSummary] = []
@@ -444,6 +455,13 @@ def _merge_rerank_summary(summaries: Sequence[HitSummary], ranked: Sequence[Rank
             )
         merged.append(HitSummary(**data))
     return merged
+
+
+def _content_snippet(content: str, limit: int = 360) -> str:
+    normalized = " ".join((content or "").split())
+    if len(normalized) <= limit:
+        return normalized
+    return f"{normalized[:limit].rstrip()}..."
 
 
 class _timed:
