@@ -45,6 +45,8 @@ class AlibabaBailianEmbeddingProvider:
         self.name = settings.embedding_model
         self.model_slug = model_to_slug(settings.embedding_model)
         self.dim = settings.embedding_dim
+        # DashScope API does not accept the @dim suffix used in internal model names.
+        self._api_model_name = settings.embedding_model.split("@")[0]
         self.endpoint = settings.dashscope_endpoint or settings.openai_base_url
         self.region = settings.dashscope_region
         self._api_key = settings.dashscope_api_key or settings.openai_api_key
@@ -83,7 +85,7 @@ class AlibabaBailianEmbeddingProvider:
             return []
 
         payload = {
-            "model": self.name,
+            "model": self._api_model_name,
             "input": {"texts": list(texts)},
             "parameters": {"text_type": text_type},
         }
