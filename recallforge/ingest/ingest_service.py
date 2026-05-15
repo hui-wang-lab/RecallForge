@@ -7,7 +7,7 @@ import hashlib
 import logging
 from collections.abc import Callable
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, AsyncGenerator, Protocol
 
@@ -18,7 +18,12 @@ from recallforge.chunking.core.pipeline import available_parsers, parse_to_chunk
 from recallforge.chunking.ir.models import ChunkPackage
 from recallforge.config import Settings
 from recallforge.ingest.chunk_adapter import IngestContext, build_chunks_for_ingest
-from recallforge.ingest.errors import ChunkKeyConflictError, IngestError, OversizeError, ParserUnavailableError, UnsupportedFileTypeError
+from recallforge.ingest.errors import (
+    IngestError,
+    OversizeError,
+    ParserUnavailableError,
+    UnsupportedFileTypeError,
+)
 from recallforge.ingest.hashing import compute_package_content_hash
 from recallforge.ingest.pipeline_config import build_pipeline_config
 from recallforge.storage.repository import (
@@ -31,6 +36,7 @@ from recallforge.storage.repository import (
     IngestJobRepository,
     IngestJobSkippedDuplicate,
     IngestJobSuccess,
+    ParentChunkCreate,
     ParentChunkRepository,
 )
 
@@ -75,6 +81,7 @@ class IngestRequest:
     department: str
     access_level: str
     file_path: Path
+    knowledge_base_id: int | None = None
     source_name: str | None = None
     doc_type: str | None = None
     title: str | None = None
@@ -158,7 +165,8 @@ class IngestService:
     ) -> IngestJobRecord:
         async with self._session_factory() as session:
             async with session.begin():
-                async with self._acquire_advisory_lock(session, request.tenant_id, request.source_uri):
+                lock_source_uri = f"kb:{request.knowledge_base_id}:{request.source_uri}"
+                async with self._acquire_advisory_lock(session, request.tenant_id, lock_source_uri):
                     return await self._persist_success_or_duplicate(
                         session, request, doc_type, package, preflight_warnings, job
                     )
@@ -177,6 +185,7 @@ class IngestService:
                 return await IngestJobRepository(session).create(
                     IngestJobCreate(
                         tenant_id=request.tenant_id,
+                        knowledge_base_id=request.knowledge_base_id,
                         source_uri=request.source_uri,
                         source_name=request.source_name or request.file_path.name,
                         doc_type=doc_type,
@@ -253,6 +262,7 @@ class IngestService:
             request.source_uri,
             document_hash,
             statuses=("active", "superseded"),
+            knowledge_base_id=request.knowledge_base_id,
         )
         if duplicate is not None:
             return await job_repo.mark_skipped_duplicate(
@@ -275,12 +285,17 @@ class IngestService:
                 ),
             )
 
-        await document_repo.lock_active_by_source(request.tenant_id, request.source_uri)
-        await DocumentVersionRepository(session).supersede_source(request.tenant_id, request.source_uri)
-        version = await document_repo.next_version(request.tenant_id, request.source_uri)
+        await document_repo.lock_active_by_source(request.tenant_id, request.source_uri, request.knowledge_base_id)
+        await DocumentVersionRepository(session).supersede_source(
+            request.tenant_id,
+            request.source_uri,
+            request.knowledge_base_id,
+        )
+        version = await document_repo.next_version(request.tenant_id, request.source_uri, request.knowledge_base_id)
         document = await document_repo.create(
             DocumentCreate(
                 tenant_id=request.tenant_id,
+                knowledge_base_id=request.knowledge_base_id,
                 source_uri=request.source_uri,
                 source_name=request.source_name or package.metadata.get("filename") or request.file_path.name,
                 doc_type=doc_type,
@@ -313,7 +328,12 @@ class IngestService:
         )
         parent_records = await ParentChunkRepository(session).bulk_create(
             document.id,
-            ingest_chunks.parent_creates,
+            [
+                replace(parent, knowledge_base_id=request.knowledge_base_id)
+                if isinstance(parent, ParentChunkCreate)
+                else parent
+                for parent in ingest_chunks.parent_creates
+            ],
         )
         if len(parent_records) != len(ingest_chunks.parent_creates):
             raise IngestError(
@@ -322,7 +342,10 @@ class IngestService:
             )
         parent_ids_by_key = {parent.parent_key: parent.id for parent in parent_records}
         child_creates = [
-            draft.to_create(parent_ids_by_key[parent_key])
+            replace(
+                draft.to_create(parent_ids_by_key[parent_key]),
+                knowledge_base_id=request.knowledge_base_id,
+            )
             for parent_key, drafts in ingest_chunks.child_drafts_by_parent_key.items()
             for draft in drafts
         ]

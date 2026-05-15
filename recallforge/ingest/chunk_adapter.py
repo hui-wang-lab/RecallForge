@@ -6,8 +6,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from recallforge.chunking.ir.models import ChildChunk, ChunkPackage, ParentChunk
-from recallforge.ingest.hashing import compute_content_hash
 from recallforge.ingest.errors import ChunkKeyConflictError
+from recallforge.ingest.hashing import compute_content_hash
 from recallforge.storage.repository import ChildChunkCreate, ParentChunkCreate
 
 

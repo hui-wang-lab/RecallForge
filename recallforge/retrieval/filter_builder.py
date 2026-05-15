@@ -13,7 +13,9 @@ from recallforge.storage.vector_store import VectorSearchFilter
 
 AuditLogHook = Callable[[str, dict[str, Any]], None]
 
-CLIENT_FILTER_WHITELIST = frozenset({"doc_type", "source_uri", "version", "date_range"})
+CLIENT_FILTER_WHITELIST = frozenset(
+    {"doc_type", "source_uri", "version", "date_range", "knowledge_base_id", "knowledge_base_ids"}
+)
 FORBIDDEN_CLIENT_KEYS = frozenset({"tenant_id", "user_id", "department", "access_level", "status"})
 ACCESS_LEVEL_MATRIX = {
     "public": ["public"],
@@ -60,9 +62,11 @@ class FilterBuilder:
         version = filters.get("version")
         if version is not None and not isinstance(version, int):
             raise FilterBuilderError("client filter 'version' must be an integer")
+        knowledge_base_id = _knowledge_base_filter(filters)
 
         return VectorSearchFilter(
             tenant_id=ctx.tenant_id,
+            knowledge_base_id=knowledge_base_id,
             department=departments,
             access_level=access_levels,
             doc_type=_optional_string(filters.get("doc_type"), "doc_type"),
@@ -90,3 +94,24 @@ def _optional_string(value: Any, field_name: str) -> str | None:
     if not isinstance(value, str) or not value.strip():
         raise FilterBuilderError(f"client filter {field_name!r} must be a non-empty string")
     return value
+
+
+def _knowledge_base_filter(filters: dict[str, Any]) -> int | list[int] | None:
+    single = filters.get("knowledge_base_id")
+    many = filters.get("knowledge_base_ids")
+    if single is not None and many is not None:
+        raise FilterBuilderError("use either 'knowledge_base_id' or 'knowledge_base_ids', not both")
+    if single is not None:
+        if not isinstance(single, int) or single <= 0:
+            raise FilterBuilderError("client filter 'knowledge_base_id' must be a positive integer")
+        return single
+    if many is not None:
+        if not isinstance(many, list) or not many:
+            raise FilterBuilderError("client filter 'knowledge_base_ids' must be a non-empty list")
+        ids = []
+        for item in many:
+            if not isinstance(item, int) or item <= 0:
+                raise FilterBuilderError("client filter 'knowledge_base_ids' must contain positive integers")
+            ids.append(item)
+        return ids
+    return None

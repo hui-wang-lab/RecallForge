@@ -11,14 +11,15 @@ from recallforge.chunking.ir.models import Block, ParsedDocument, SectionNode
 ROOT_TITLE = "Document"
 
 # Matches Chinese legal article headings: 第X条/款/章/节 (X = Chinese numerals or digits)
+_CN_NUM_WITH_SPACES = r"(?:[零一二三四五六七八九十百千万\d]\s*)+"
 _CN_LEGAL_ARTICLE_RE = re.compile(
-    r'^第[零一二三四五六七八九十百千万\d]+[条款章节]{1,2}(?:\s|$)'
+    rf'^第\s*{_CN_NUM_WITH_SPACES}[条款章节]{{1,2}}(?:\s|$)'
 )
 _STRUCTURED_HEADING_RE = re.compile(
     r"^\s*(?:"
     r"\d+(?:\.\d+){0,4}\s+\S+|"
     r"chapter\s+\d+\b.*|section\s+\d+\b.*|part\s+\d+\b.*|appendix\b.*|"
-    r"第[零一二三四五六七八九十百千万\d]+[章节目篇卷]\s*\S*"
+    rf"第\s*{_CN_NUM_WITH_SPACES}[章节目篇卷]\s*\S*"
     r")",
     re.IGNORECASE,
 )
@@ -29,7 +30,7 @@ _MAX_INFERRED_HEADING_LEN = 80
 _SENTENCE_END_RE = re.compile(r'[。！？…；.!?]$')
 _ORPHAN_START_RE = re.compile(r'^[，、；：…—]')
 _NUMBERED_HEADING_RE = re.compile(r"^\s*(\d+(?:\.\d+){0,5})\s+\S+")
-_CN_HEADING_RE = re.compile(r"^\s*第[零一二三四五六七八九十百千万\d]+([章节目篇卷条款])")
+_CN_HEADING_RE = re.compile(rf"^\s*第\s*{_CN_NUM_WITH_SPACES}([章节目篇卷条款])")
 # Matches date strings like "2025 年 8 月 6 日" or "2025/08/06" to prevent false heading promotion
 _DATE_RE = re.compile(r'^\d{4}\s*[年/\-\.]\s*\d{1,2}')
 

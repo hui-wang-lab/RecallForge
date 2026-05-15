@@ -312,6 +312,8 @@ class RetrievalService:
             QueryLogCreate(
                 request_id=ctx.request_id,
                 tenant_id=ctx.tenant_id,
+                knowledge_base_id=_single_kb_id(filters),
+                knowledge_base_ids=_kb_ids(filters),
                 user_id=ctx.user_id,
                 department=ctx.department,
                 access_level=ctx.access_level,
@@ -340,6 +342,19 @@ class RetrievalService:
                 error_message=result.error_message,
             )
         )
+
+
+def _kb_ids(filters: VectorSearchFilter | None) -> list[int]:
+    if filters is None or filters.knowledge_base_id is None:
+        return []
+    if isinstance(filters.knowledge_base_id, list):
+        return [int(item) for item in filters.knowledge_base_id]
+    return [int(filters.knowledge_base_id)]
+
+
+def _single_kb_id(filters: VectorSearchFilter | None) -> int | None:
+    ids = _kb_ids(filters)
+    return ids[0] if len(ids) == 1 else None
 
 
 def _rank_from_vector(
