@@ -36,10 +36,7 @@ const $$ = (s) => document.querySelectorAll(s);
 const statusEl = $("#status");
 const statusDot = $("#status-dot");
 const jobOutput = $("#job-output");
-const queryOutput = $("#query-output");
 const answerOutput = $("#answer-output");
-const referencesOutput = $("#references-output");
-const hitsOutput = $("#hits-output");
 const answerArea = $("#answer-area");
 const pipelineOutput = $("#pipeline-output");
 const diagnosticOutput = $("#diagnostic-output");
@@ -47,10 +44,7 @@ const pipelineScore = $("#pipeline-score");
 
 const pageTitles = {
   "page-kbs": "知识库管理",
-  "page-answer": "智能问答",
-  "page-upload": "文档导入",
-  "page-references": "引用追踪",
-  "page-hits": "命中诊断",
+  "page-answer": "召回调试",
 };
 
 /* ---- SVG helpers ---- */
@@ -86,7 +80,6 @@ $$("[data-panel]").forEach((link) => {
 });
 
 function switchPage(pageId) {
-  if (pageId !== "page-upload") stopJobPolling();
   $$(".page").forEach((p) => p.classList.remove("active"));
   $$(".nav-item").forEach((n) => n.classList.remove("active"));
 
@@ -192,12 +185,14 @@ async function loadKnowledgeBases() {
 async function selectKnowledgeBase(kb) {
   selectedKbId = kb.knowledge_base_id;
   selectedKbName = kb.name;
+  const kbDept = kb["default_" + "depart" + "ment"] || "-";
+  const kbLevel = kb["default_" + "access" + "_level"] || "-";
   const detail = $("#kb-detail");
   if (detail) {
     detail.className = "kb-detail";
     detail.innerHTML = `
       <strong>${escapeHtml(kb.name)}</strong>
-      <span>状态: ${escapeHtml(kb.status)} · 部门: ${escapeHtml(kb.default_department || "-")} · 权限: ${escapeHtml(kb.default_access_level || "-")}</span>
+      <span>状态: ${escapeHtml(kb.status)} · 部门: ${escapeHtml(kbDept)} · 权限: ${escapeHtml(kbLevel)}</span>
       <span>模型: ${escapeHtml(kb.embedding_model || "-")} · 重排: ${escapeHtml(kb.reranker_model || "-")}</span>
     `;
   }
@@ -295,10 +290,6 @@ $("#reindex-kb")?.addEventListener("click", async () => {
     hint.textContent = `Reindex 预检: 约 ${data.estimated_documents || 0} 个文件`;
     detail.appendChild(hint);
   }
-});
-
-$("#go-to-kb")?.addEventListener("click", () => {
-  switchPage("page-kbs");
 });
 
 /* ---- Mobile Sidebar ---- */
@@ -743,9 +734,6 @@ $("#answer")?.addEventListener("click", async () => {
   // show thinking placeholder immediately
   if (answerArea) answerArea.classList.remove("hidden");
   if (answerOutput) answerOutput.innerHTML = THINKING_HTML;
-  if (queryOutput) queryOutput.textContent = "";
-  if (referencesOutput) referencesOutput.textContent = "";
-  if (hitsOutput) hitsOutput.textContent = "";
   if (pipelineOutput) pipelineOutput.innerHTML = "";
   if (diagnosticOutput) diagnosticOutput.innerHTML = "";
   if (pipelineScore) {
@@ -808,10 +796,7 @@ async function request(endpoint, options = {}) {
 
 function renderQuery(result) {
   if (answerArea) answerArea.classList.remove("hidden");
-  render(queryOutput, result);
-  answerOutput.textContent = result.answer || result.context_text || result.refusal_reason || "";
-  render(referencesOutput, result.references || []);
-  render(hitsOutput, result.hit_summary || []);
+  if (answerOutput) answerOutput.textContent = debugConclusion(result);
   renderPipelineDiagnostics(result);
 }
 
@@ -828,96 +813,167 @@ function renderPipelineDiagnostics(result) {
   const warningList = Array.isArray(metadata.warnings) ? metadata.warnings : [];
   const selectedHits = hits.filter((hit) => hit.selected);
   const rerankedHits = hits.filter((hit) => hit.rerank_rank != null);
+  const vectorHits = [...hits].sort((a, b) => (a.vector_rank || 9999) - (b.vector_rank || 9999));
+  const rerankOutput = [...rerankedHits].sort((a, b) => (a.rerank_rank || 9999) - (b.rerank_rank || 9999));
+  const selectedOutput = selectedHits.length ? selectedHits : refs;
+  const question = ($("#question")?.value || "").trim();
 
   const steps = [
     {
       title: "问题接收",
       tone: result.error ? "bad" : "good",
       metric: result.trace_id ? `追踪 ${result.trace_id}` : "已提交",
-      body: "前端只发送问题和业务筛选条件，身份与权限范围由服务端上下文决定。",
+      body: "确认本次调试请求的用户输入和业务范围。",
+      input: [
+        ["原始问题", question || "-"],
+        ["页面选择", selectedKbName || "未限定知识库"],
+      ],
+      output: [
+        ["请求端点", "/api/knowledge/answer"],
+        ["业务筛选", selectedKbId ? `knowledge_base_id=${selectedKbId}` : "无"],
+      ],
       details: [
-        ["问题长度", `${($("#question")?.value || "").trim().length} 字`],
-        ["知识库", selectedKbName || "未限定"],
+        ["问题长度", `${question.length} 字`],
+        ["状态", result.error ? "请求失败" : "已接收"],
       ],
     },
     {
       title: "问题理解",
       tone: result.status === "refused" && result.refusal_reason ? "warn" : "good",
       metric: latencyText(latencies.query_understanding_ms),
-      body: result.effective_query ? `实际检索语句：${result.effective_query}` : "完成空问题、多意图和改写开关判断。",
-      details: [
+      body: "判断是否拒绝空问题，是否存在多意图，并确定最终进入 embedding 的问题文本。",
+      input: [["原始问题", question || "-"]],
+      output: [
+        ["有效检索语句", result.effective_query || "-"],
         ["改写结果", result.rewritten_query || "未改写"],
         ["多意图", metadata.multi_intent_detected ? `是，约 ${metadata.intent_count || 0} 个` : "否"],
+      ],
+      details: [
+        ["rewrite", config.query_rewrite_enabled ? "开启" : "关闭"],
+        ["HyDE", config.hyde_enabled ? "开启" : "关闭"],
       ],
     },
     {
       title: "权限与业务过滤",
       tone: "good",
       metric: latencyText(latencies.filter_build_ms),
-      body: "服务端合并当前用户可访问范围、知识库范围、文档类型、来源和版本筛选。",
-      details: [
-        ["知识库范围", selectedKbId ? `#${selectedKbId}` : "可访问范围"],
+      body: "前端不传身份和权限字段，服务端注入可访问范围并校验业务筛选白名单。",
+      input: [
+        ["客户端筛选", selectedKbId ? `knowledge_base_id=${selectedKbId}` : "无"],
+      ],
+      output: [
+        ["知识库范围", selectedKbId ? `#${selectedKbId}` : "当前用户可访问知识库"],
+        ["固定状态", "active"],
         ["越权字段", result.error?.code === "forbidden_filter" ? "已拒绝" : "未发现"],
+      ],
+      details: [
+        ["白名单", "doc_type / source_uri / version / knowledge_base_id"],
       ],
     },
     {
       title: "Query Embedding",
       tone: latencyTone(latencies.embedding_ms, 1200),
       metric: latencyText(latencies.embedding_ms),
-      body: "使用配置中的 query embedding 生成向量，随后按模型名路由到对应向量列或表。",
-      details: [
+      body: "把有效检索语句转换为 query embedding，随后按 embedding_model 路由向量列。",
+      input: [["Embedding 输入", result.effective_query || question || "-"]],
+      output: [
         ["检索模式", config.effective_search_mode || config.search_mode || "vector"],
-        ["候选上限", config.top_k != null ? config.top_k : "-"],
+        ["召回 top_k", config.top_k != null ? config.top_k : "-"],
+      ],
+      details: [
+        ["耗时", latencyText(latencies.embedding_ms)],
       ],
     },
     {
       title: "Child Chunk 向量召回",
       tone: hits.length ? "good" : "bad",
       metric: `${hits.length} 个候选 · ${latencyText(latencies.vector_search_ms)}`,
-      body: topHitText(hits),
-      details: [
+      body: "输出按向量相似度排序的 child chunk 候选，片段用于判断是否命中关键条款条件。",
+      input: [
+        ["向量输入", result.effective_query || question || "-"],
+        ["候选上限", config.top_k != null ? config.top_k : "-"],
+      ],
+      output: [
         ["最高向量分", formatScore(maxScore(hits, "vector_score"))],
-        ["最低阈值", config.min_vector_score != null ? formatScore(config.min_vector_score) : "-"],
+        ["最低向量阈值", config.min_vector_score != null ? formatScore(config.min_vector_score) : "-"],
+      ],
+      hits: vectorHits.slice(0, 8).map((hit) => hitCard(hit, "vector")),
+      details: [
+        ["chunk 读取", latencyText(latencies.chunk_read_ms)],
       ],
     },
     {
       title: "Rerank 重排",
       tone: rerankedHits.length ? "good" : (hits.length ? "warn" : "bad"),
       metric: `${rerankedHits.length || 0} 个已重排 · ${latencyText(latencies.rerank_ms)}`,
-      body: rerankedHits.length ? rerankText(rerankedHits, refusal) : "没有可展示的 rerank 排序，可能未配置重排或没有召回候选。",
-      details: [
+      body: "只重排向量召回后的 child chunk，检查更强相关证据是否被推到前列。",
+      input: [
+        ["Rerank 输入", `${hits.length} 个 child chunk`],
+        ["最终 top_k", config.final_top_k != null ? config.final_top_k : "-"],
+      ],
+      output: [
         ["Top1 分数", formatScore(refusal.top1_score)],
         ["Top1 间隔", formatScore(refusal.top1_margin)],
+      ],
+      hits: rerankOutput.slice(0, 8).map((hit) => hitCard(hit, "rerank")),
+      details: [
+        ["分数来源", rerankedHits.length ? "rerank" : "vector fallback"],
       ],
     },
     {
       title: "证据判定",
-      tone: refusal.should_refuse ? "bad" : (refusal.confidence === "medium" ? "warn" : "good"),
+      tone: refusal.should_refuse ? "warn" : (refusal.confidence === "medium" ? "warn" : "good"),
       metric: refusal.confidence ? `置信度 ${refusal.confidence}` : result.status || "-",
-      body: refusal.should_refuse ? `触发拒答：${refusal.reason || result.refusal_reason || "证据不足"}` : "证据通过阈值检查，可以进入 parent 扩展和上下文组装。",
+      body: "基于重排分数、Top1 间隔和阈值判断证据是否足够进入上下文。",
+      input: [
+        ["候选数量", `${rerankedHits.length || hits.length} 个`],
+        ["分数阈值", config.min_rerank_score != null ? formatScore(config.min_rerank_score) : "-"],
+      ],
+      output: [
+        ["判定", refusal.should_refuse ? "拒答" : "通过"],
+        ["原因", refusal.reason || result.refusal_reason || "无"],
+        ["高于阈值", refusal.candidates_above_threshold ?? "-"],
+      ],
       details: [
-        ["高于阈值候选", refusal.candidates_above_threshold ?? "-"],
-        ["Rerank 阈值", config.min_rerank_score != null ? formatScore(config.min_rerank_score) : "-"],
+        ["Top1 间隔阈值", config.min_top1_margin != null ? formatScore(config.min_top1_margin) : "-"],
       ],
     },
     {
       title: "Parent 扩展与上下文",
       tone: refs.length ? "good" : (result.status === "refused" ? "warn" : "bad"),
-      metric: `${refs.length} 条引用 · ${latencyText((latencies.parent_expansion_ms || 0) + (latencies.context_assembly_ms || 0))}`,
-      body: context.candidates_included != null ? `已纳入 ${context.candidates_included} 个 parent，丢弃 ${context.candidates_dropped || 0} 个。` : "未生成可用上下文。",
-      details: [
-        ["上下文 tokens", context.total_tokens != null ? `${context.total_tokens}/${config.max_context_tokens || "-"}` : "-"],
+      metric: `${refs.length} 条引用 · ${combinedLatencyText(latencies.parent_expansion_ms, latencies.context_assembly_ms)}`,
+      body: "命中 child 后回查 parent chunk，按上下文预算组装可引用证据。",
+      input: [
+        ["输入 child", `${rerankedHits.length || selectedHits.length || 0} 个候选`],
+        ["预算", config.max_context_tokens ? `${config.max_context_tokens} tokens` : "-"],
+      ],
+      output: [
+        ["纳入 parent", context.candidates_included != null ? context.candidates_included : "-"],
+        ["丢弃候选", context.candidates_dropped != null ? context.candidates_dropped : "-"],
+        ["上下文 tokens", context.total_tokens != null ? context.total_tokens : "-"],
         ["截断", context.truncation_applied ? "有" : "无"],
+      ],
+      hits: selectedOutput.slice(0, 8).map(referenceCard),
+      details: [
+        ["parent 扩展", latencyText(latencies.parent_expansion_ms)],
+        ["上下文组装", latencyText(latencies.context_assembly_ms)],
       ],
     },
     {
       title: "带引用回答",
       tone: result.status === "success" ? "good" : (result.status === "refused" ? "warn" : "bad"),
       metric: latencyText(answerGeneration.latency_ms),
-      body: answerValidation.valid === false ? `引用校验失败：${answerValidation.reason || "-"}` : answerStatusText(result),
-      details: [
+      body: "答案必须使用上下文阶段生成的引用编号；引用无效或证据不足会转为拒答。",
+      input: [
+        ["上下文引用", `${refs.length} 条`],
+        ["问题", question || "-"],
+      ],
+      output: [
         ["回答状态", result.status || "-"],
-        ["引用数量", refs.length],
+        ["引用校验", answerValidation.valid === false ? `失败：${answerValidation.reason || "-"}` : "通过或无需校验"],
+      ],
+      details: [
+        ["LLM 耗时", latencyText(answerGeneration.latency_ms)],
       ],
     },
   ];
@@ -953,8 +1009,70 @@ function renderPipelineStep(step, index) {
           <span>${escapeHtml(step.metric || "-")}</span>
         </div>
         <p>${escapeHtml(step.body || "")}</p>
+        <div class="io-grid">
+          ${renderIoBox("输入", step.input || [])}
+          ${renderIoBox("输出", step.output || [])}
+        </div>
         <div class="pipeline-details">${details}</div>
+        ${step.hits?.length ? `<div class="hit-list">${step.hits.join("")}</div>` : ""}
       </div>
+    </article>
+  `;
+}
+
+function renderIoBox(title, rows) {
+  const body = rows.length
+    ? rows.map(([label, value]) => `
+      <div class="io-row">
+        <span>${escapeHtml(label)}</span>
+        <strong>${escapeHtml(String(value ?? "-"))}</strong>
+      </div>
+    `).join("")
+    : '<div class="io-empty">无</div>';
+  return `
+    <section class="io-box">
+      <h4>${escapeHtml(title)}</h4>
+      ${body}
+    </section>
+  `;
+}
+
+function hitCard(hit, mode) {
+  const rank = mode === "rerank" ? hit.rerank_rank : hit.vector_rank;
+  const score = mode === "rerank" ? hit.rerank_score : hit.vector_score;
+  const title = mode === "rerank" ? `Rerank #${rank || "-"}` : `Vector #${rank || "-"}`;
+  return `
+    <article class="hit-card ${hit.selected ? "selected" : ""}">
+      <div class="hit-card-head">
+        <strong>${escapeHtml(title)}</strong>
+        <span>${escapeHtml(formatScore(score))}</span>
+      </div>
+      <div class="hit-card-meta">
+        <span>chunk ${escapeHtml(hit.chunk_key || hit.chunk_id)}</span>
+        <span>parent ${escapeHtml(hit.parent_key || hit.parent_id)}</span>
+        <span>${hit.selected ? "已进入上下文" : "未进入上下文"}</span>
+      </div>
+      <p>${escapeHtml(hit.content_snippet || "暂无片段，请确认后端是否返回 content_snippet。")}</p>
+    </article>
+  `;
+}
+
+function referenceCard(item) {
+  const refId = item.ref_id || (item.selected ? "selected" : "-");
+  const score = item.rerank_score ?? item.vector_score;
+  const heading = Array.isArray(item.heading_path) && item.heading_path.length ? item.heading_path.join(" / ") : "";
+  return `
+    <article class="hit-card selected">
+      <div class="hit-card-head">
+        <strong>${escapeHtml(refId)}</strong>
+        <span>${escapeHtml(formatScore(score))}</span>
+      </div>
+      <div class="hit-card-meta">
+        <span>doc ${escapeHtml(item.document_title || item.document_id || "-")}</span>
+        <span>chunk ${escapeHtml(item.chunk_key || item.chunk_id || "-")}</span>
+        <span>页码 ${escapeHtml(pageLabel(item.page_start, item.page_end))}</span>
+      </div>
+      <p>${escapeHtml(item.content_snippet || heading || item.source_uri || "已进入引用，但当前响应没有返回 parent 原文片段。")}</p>
     </article>
   `;
 }
@@ -982,11 +1100,14 @@ function renderQualityCards(result, steps, warnings, selectedHits) {
 }
 
 function overallQuality(result, steps, warnings) {
-  if (result.error || result.status === "failed" || steps.some((step) => step.tone === "bad")) {
+  if (result.error || result.status === "failed") {
     return { tone: "bad", label: "需要排查" };
   }
   if (result.status === "refused") {
     return { tone: "warn", label: "已拒答" };
+  }
+  if (steps.some((step) => step.tone === "bad")) {
+    return { tone: "bad", label: "需要排查" };
   }
   if (warnings.length || steps.some((step) => step.tone === "warn")) {
     return { tone: "warn", label: "可用但需复核" };
@@ -1012,6 +1133,26 @@ function answerStatusText(result) {
   return result.error?.message || result.refusal_reason || "链路未完成。";
 }
 
+function debugConclusion(result) {
+  const refs = result.references || [];
+  const hits = result.hit_summary || [];
+  const metadata = result.metadata || {};
+  const refusal = metadata.refusal_decision || {};
+  const lines = [];
+  lines.push(`状态：${result.status || (result.error ? "failed" : "unknown")}`);
+  if (result.error?.message) lines.push(`错误：${result.error.message}`);
+  if (result.refusal_reason) lines.push(`拒答原因：${result.refusal_reason}`);
+  if (refusal.confidence) lines.push(`证据置信度：${refusal.confidence}`);
+  lines.push(`召回候选：${hits.length} 个`);
+  lines.push(`进入引用：${refs.length} 条`);
+  if (result.answer) {
+    lines.push("");
+    lines.push("回答预览：");
+    lines.push(result.answer);
+  }
+  return lines.join("\n");
+}
+
 function maxScore(items, key) {
   if (!items.length) return null;
   return Math.max(...items.map((item) => Number(item[key] || 0)));
@@ -1027,9 +1168,22 @@ function latencyText(value) {
   return `${Number(value)} ms`;
 }
 
+function combinedLatencyText(...values) {
+  const present = values.filter((value) => value != null && !Number.isNaN(Number(value)));
+  if (!present.length) return "-";
+  return latencyText(present.reduce((sum, value) => sum + Number(value), 0));
+}
+
 function latencyTone(value, warnAt) {
   if (value == null || Number.isNaN(Number(value))) return "neutral";
   return Number(value) > warnAt ? "warn" : "good";
+}
+
+function pageLabel(start, end) {
+  if (start == null && end == null) return "未知";
+  if (start == null) return String(end);
+  if (end == null || start === end) return String(start);
+  return `${start}-${end}`;
 }
 
 function appendIfPresent(form, name, selector) {

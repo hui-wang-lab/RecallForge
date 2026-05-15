@@ -198,6 +198,7 @@ a { color: inherit; text-decoration: none; }
 .page-body.wide { max-width: 1120px; }
 
 .page-body--answer {
+  max-width: 1040px;
   padding-top: 28px;
 }
 
@@ -794,6 +795,109 @@ a { color: inherit; text-decoration: none; }
   gap: 6px;
 }
 
+.io-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.io-box {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line-light);
+  border-radius: var(--radius);
+  background: var(--bg-page);
+}
+
+.io-box h4 {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.io-row {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 8px;
+  padding: 4px 0;
+  border-top: 1px solid rgba(235,235,240,0.7);
+}
+
+.io-row:first-of-type { border-top: 0; }
+
+.io-row span,
+.io-empty {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.io-row strong {
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.hit-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.hit-card {
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--soft);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+
+.hit-card.selected {
+  border-left-color: #22c55e;
+  background: #fbfffc;
+}
+
+.hit-card-head,
+.hit-card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.hit-card-head strong {
+  color: var(--ink);
+  font-size: 12.5px;
+}
+
+.hit-card-head span {
+  color: var(--accent);
+  font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.hit-card-meta {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  margin-top: 5px;
+}
+
+.hit-card-meta span {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.hit-card p {
+  margin-top: 8px;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
 .pipeline-kv {
   display: inline-flex;
   align-items: center;
@@ -1333,6 +1437,8 @@ a { color: inherit; text-decoration: none; }
   .inline-form input { width: 100%; }
   .split-layout { grid-template-columns: 1fr; }
   .diagnostic-grid { grid-template-columns: 1fr; }
+  .io-grid { grid-template-columns: 1fr; }
+  .io-row { grid-template-columns: 1fr; gap: 2px; }
   .pipeline-head { align-items: flex-start; flex-direction: column; gap: 2px; }
   .form-grid { grid-template-columns: 1fr; }
   .field.full { grid-column: auto; }

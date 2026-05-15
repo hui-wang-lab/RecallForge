@@ -32,19 +32,7 @@
           </a>
           <a class="nav-item active" data-panel="page-answer">
             <span class="nav-icon"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2z"/><path d="M7 7h6M7 10h4"/></svg></span>
-            智能问答
-          </a>
-          <a class="nav-item" data-panel="page-upload">
-            <span class="nav-icon"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13V3m0 0L6 7m4-4l4 4"/><path d="M3 14v2a2 2 0 002 2h10a2 2 0 002-2v-2"/></svg></span>
-            文档导入
-          </a>
-          <a class="nav-item" data-panel="page-references">
-            <span class="nav-icon"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h12v14l-6-3-6 3V4z"/></svg></span>
-            引用追踪
-          </a>
-          <a class="nav-item" data-panel="page-hits">
-            <span class="nav-icon"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7"/><circle cx="10" cy="10" r="4"/><circle cx="10" cy="10" r="1"/></svg></span>
-            命中诊断
+            召回调试
           </a>
         </nav>
 
@@ -59,7 +47,7 @@
           <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Toggle sidebar">
             <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 5h14M3 10h14M3 15h14"/></svg>
           </button>
-          <p id="topbar-title">智能问答</p>
+          <p id="topbar-title">召回调试</p>
         </header>
 
         <!-- Page: 知识库 -->
@@ -227,13 +215,13 @@
           </div>
         </div>
 
-        <!-- Page: 智能问答 -->
+        <!-- Page: 召回调试 -->
         <section class="page active" id="page-answer">
           <div class="page-body page-body--answer">
             <div class="composer">
-              <textarea id="question" rows="3" placeholder="有什么我能帮忙的？ 试试输入一个知识库问题…"></textarea>
+              <textarea id="question" rows="3" placeholder="输入一个召回测试问题，例如：如果被保险人在合同生效后2年内自杀，保险公司是否承担身故保险金责任？"></textarea>
               <div class="composer-bar">
-                <span class="hint">Ctrl + Enter 发送</span>
+                <span class="hint">Ctrl + Enter 运行调试</span>
                 <button type="button" id="answer" class="send-btn" title="发送">
                   <svg viewBox="0 0 20 20" fill="currentColor"><path d="M3.5 18.5l14-8.5-14-8.5v6.5L12 10 3.5 12v6.5z"/></svg>
                 </button>
@@ -244,7 +232,7 @@
               <div class="result-card">
                 <div class="result-card-bar"></div>
                 <div class="result-card-body">
-                  <h3>回答</h3>
+                  <h3>调试结论</h3>
                   <pre id="answer-output" class="output-block"></pre>
                 </div>
               </div>
@@ -265,63 +253,7 @@
                   <div id="diagnostic-output" class="diagnostic-grid"></div>
                 </div>
               </div>
-              <div class="result-card secondary">
-                <div class="result-card-bar"></div>
-                <div class="result-card-body">
-                  <h3>原始响应</h3>
-                  <pre id="query-output" class="output-block small"></pre>
-                </div>
-              </div>
             </div>
-          </div>
-        </section>
-
-        <!-- Page: 文档导入 (已移至知识库模块) -->
-        <section class="page" id="page-upload">
-          <div class="page-body">
-            <div class="section-header">
-              <div class="section-bar"></div>
-              <div>
-                <h2>文档导入</h2>
-                <p>请先在左侧导航选择知识库，然后在知识库页面点击上传按钮。</p>
-              </div>
-            </div>
-            <div class="empty-state">
-              <svg viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="12" y="8" width="40" height="48" rx="4" />
-                <path d="M24 24h16M24 32h16M24 40h10" />
-              </svg>
-              <p>文档导入功能已整合到知识库模块</p>
-              <button type="button" class="primary-btn" id="go-to-kb">前往知识库</button>
-            </div>
-          </div>
-        </section>
-
-        <!-- Page: 引用追踪 -->
-        <section class="page" id="page-references">
-          <div class="page-body">
-            <div class="section-header">
-              <div class="section-bar"></div>
-              <div>
-                <h2>引用追踪</h2>
-                <p>可追溯到文档、chunk、parent、页码和来源。</p>
-              </div>
-            </div>
-            <pre id="references-output" class="output-block tall"></pre>
-          </div>
-        </section>
-
-        <!-- Page: 命中诊断 -->
-        <section class="page" id="page-hits">
-          <div class="page-body">
-            <div class="section-header">
-              <div class="section-bar"></div>
-              <div>
-                <h2>命中诊断</h2>
-                <p>向量召回和 rerank 命中的详细诊断信息。</p>
-              </div>
-            </div>
-            <pre id="hits-output" class="output-block tall"></pre>
           </div>
         </section>
       </main>
