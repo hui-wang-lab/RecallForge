@@ -85,23 +85,50 @@
                 <div class="panel-head">
                   <h3>文档管理</h3>
                   <div class="panel-actions">
-                    <button type="button" class="icon-btn" id="edit-kb" title="编辑知识库">
-                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 3.5l3 3L6 13H3v-3L9.5 3.5z"/><path d="M11 2l3 3"/></svg>
+                    <button type="button" class="text-btn" id="toggle-kb-detail" title="查看知识库详情">
+                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M2 5l6 6 6-6"/></svg>
+                      知识库详情
                     </button>
-                    <button type="button" class="icon-btn" id="upload-to-kb" title="上传文档">
+                    <button type="button" class="primary-btn compact" id="upload-to-kb">
                       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M8 11V3m0 0L5 6m3-3l3 3"/><path d="M2 11v2a1 1 0 001 1h10a1 1 0 001-1v-2"/></svg>
+                      上传文档
                     </button>
                     <button type="button" class="icon-btn" id="refresh-docs" title="刷新文档">
                       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M2 8a6 6 0 0110.47-4M14 8a6 6 0 01-10.47 4"/><path d="M12 2v2.5H9.5M4 14v-2.5h2.5"/></svg>
                     </button>
-                    <button type="button" class="icon-btn" id="reindex-kb" title="重新索引">
-                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M2 8a6 6 0 0110.47-4M14 8a6 6 0 01-10.47 4"/><path d="M12 2v2.5H9.5M4 14v-2.5h2.5"/></svg>
-                    </button>
-                    <button type="button" class="icon-btn danger-icon" id="archive-kb" title="归档知识库">
-                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4h12v9a1 1 0 01-1 1H3a1 1 0 01-1-1V4z"/><path d="M1.5 2h13"/><path d="M6 7h4"/></svg>
-                    </button>
                   </div>
                 </div>
+
+                <!-- KB Detail (collapsed by default) -->
+                <div id="kb-detail-section" class="kb-detail-section" style="display:none">
+                  <div class="kb-detail-head">
+                    <div>
+                      <strong id="kb-detail-name"></strong>
+                      <span id="kb-detail-desc"></span>
+                    </div>
+                    <div class="kb-detail-actions">
+                      <span id="kb-detail-status" class="status-pill"></span>
+                      <button type="button" class="text-btn" id="edit-kb" title="编辑知识库">
+                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 3.5l3 3L6 13H3v-3L9.5 3.5z"/><path d="M11 2l3 3"/></svg>
+                        编辑
+                      </button>
+                      <button type="button" class="text-btn" id="reindex-kb" title="重新索引">
+                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M2 8a6 6 0 0110.47-4M14 8a6 6 0 01-10.47 4"/><path d="M12 2v2.5H9.5M4 14v-2.5h2.5"/></svg>
+                        Reindex
+                      </button>
+                      <button type="button" class="text-btn danger" id="archive-kb" title="归档知识库">
+                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4h12v9a1 1 0 01-1 1H3a1 1 0 01-1-1V4z"/><path d="M1.5 2h13"/><path d="M6 7h4"/></svg>
+                        归档
+                      </button>
+                      <button type="button" class="text-btn" id="close-kb-detail" title="收起详情">
+                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+                      </button>
+                    </div>
+                  </div>
+                  <div class="metric-grid" id="kb-detail-metrics"></div>
+                  <div class="detail-lines" id="kb-detail-lines"></div>
+                </div>
+
                 <div id="kb-detail" class="kb-detail"></div>
                 <div id="kb-editor" class="inline-editor" style="display:none"></div>
                 <div class="kb-tabs" role="tablist" aria-label="知识库视图">

@@ -223,6 +223,9 @@ async function loadKnowledgeBases() {
     list.appendChild(button);
   });
 
+  // Add a "view details" hint in the panel head when KB is selected
+  updateKbDetailToggle();
+
   if (selectedKb) {
     renderKnowledgeBaseDetail(selectedKb);
     await Promise.all([loadKbDocuments(), loadKbJobs()]);
@@ -239,6 +242,8 @@ async function selectKnowledgeBase(kb) {
   selectedDocumentTitle = "";
   updateKbActiveRows();
   renderKnowledgeBaseDetail(kb);
+  // Show detail section automatically when selecting a KB
+  showKbDetail();
   hideKbEditor();
   hideDocumentDetail();
   renderChunkEmpty("选择一个文件后查看切片。");
@@ -255,10 +260,12 @@ function clearKnowledgeBaseSelection() {
 
 function renderKbEmpty(message) {
   const detail = $("#kb-detail");
+  const detailSection = $("#kb-detail-section");
   const docs = $("#kb-documents");
   const jobs = $("#kb-jobs");
   const docCount = $("#doc-count");
   if (detail) detail.innerHTML = `<div class="detail-empty">${escapeHtml(message)}</div>`;
+  if (detailSection) detailSection.style.display = "none";
   if (docs) docs.innerHTML = "";
   if (jobs) jobs.innerHTML = "";
   if (docCount) docCount.textContent = "";
@@ -268,47 +275,79 @@ function renderKbEmpty(message) {
   hideDocumentDetail();
 }
 
+function showKbDetail() {
+  const detailSection = $("#kb-detail-section");
+  if (detailSection) detailSection.style.display = "block";
+}
+
+function hideKbDetail() {
+  const detailSection = $("#kb-detail-section");
+  if (detailSection) detailSection.style.display = "none";
+}
+
 function updateKbActiveRows() {
   $$(".kb-row").forEach((row) => {
     row.classList.toggle("active", Number(row.dataset.kbId) === selectedKbId);
   });
 }
 
+function updateKbDetailToggle() {
+  const toggleBtn = $("#toggle-kb-detail");
+  if (!toggleBtn) return;
+  if (selectedKb) {
+    toggleBtn.style.display = "inline-flex";
+  } else {
+    toggleBtn.style.display = "none";
+  }
+}
+
+function toggleKbDetail() {
+  const detailSection = $("#kb-detail-section");
+  if (!detailSection) return;
+  const isVisible = detailSection.style.display !== "none";
+  if (isVisible) {
+    detailSection.style.display = "none";
+  } else {
+    detailSection.style.display = "block";
+  }
+}
+
 function renderKnowledgeBaseDetail(kb) {
-  const detail = $("#kb-detail");
+  const detail = $("#kb-detail-section");
   if (!detail) return;
+
   const kbDept = getKbField(kb, "default_" + "depart" + "ment") || "-";
   const kbLevel = getKbField(kb, "default_" + "access" + "_level") || "-";
   const actions = kb.actions || {};
-  detail.className = "kb-detail rich";
-  detail.innerHTML = `
-    <div class="kb-detail-head">
-      <div>
-        <strong>${escapeHtml(kb.name)}</strong>
-        <span>${escapeHtml(kb.description || "无描述")}</span>
-      </div>
-      <span class="status-pill ${escapeHtml(kb.status || "active")}">${escapeHtml(kb.status || "-")}</span>
-    </div>
-    <div class="metric-grid">
-      <span><strong>${kb.document_count || 0}</strong> 文件</span>
-      <span><strong>${kb.active_chunk_count || 0}</strong> chunks</span>
-      <span><strong>${escapeHtml(kb.role || "-")}</strong> 角色</span>
-    </div>
-    <div class="detail-lines">
-      <span>默认范围: ${escapeHtml(kbDept)} · ${escapeHtml(kbLevel)}</span>
-      <span>解析: ${escapeHtml(kb.default_parser || "auto")} · 模板: ${escapeHtml(kb.default_template || "auto")} · 检索: ${escapeHtml(kb.default_search_mode || "vector")}</span>
-      <span>top_k: ${escapeHtml(kb.default_top_k ?? "-")} · final_top_k: ${escapeHtml(kb.default_final_top_k ?? "-")}</span>
-      <span>标签: ${escapeHtml((kb.tags || []).join(", ") || "-")}</span>
-    </div>
-    <div class="detail-actions">
-      <button type="button" class="text-btn" data-kb-action="edit" ${actions.can_update === false ? "disabled" : ""}>编辑</button>
-      <button type="button" class="text-btn" data-kb-action="reindex" ${actions.can_reindex === false ? "disabled" : ""}>reindex 预检</button>
-      <button type="button" class="text-btn danger" data-kb-action="archive" ${actions.can_delete === false ? "disabled" : ""}>归档</button>
-    </div>
+
+  // Update detail content
+  $("#kb-detail-name").textContent = kb.name;
+  $("#kb-detail-desc").textContent = kb.description || "无描述";
+
+  const statusEl = $("#kb-detail-status");
+  statusEl.className = `status-pill ${kb.status || "active"}`;
+  statusEl.textContent = kb.status || "-";
+
+  // Metrics
+  $("#kb-detail-metrics").innerHTML = `
+    <span><strong>${kb.document_count || 0}</strong> 文件</span>
+    <span><strong>${kb.active_chunk_count || 0}</strong> chunks</span>
+    <span><strong>${kb.role || "-"}</strong> 角色</span>
   `;
-  detail.querySelector('[data-kb-action="edit"]')?.addEventListener("click", showKbEditForm);
-  detail.querySelector('[data-kb-action="reindex"]')?.addEventListener("click", dryRunReindex);
-  detail.querySelector('[data-kb-action="archive"]')?.addEventListener("click", () => changeKnowledgeBaseStatus("archive"));
+
+  // Detail lines
+  $("#kb-detail-lines").innerHTML = `
+    <span>默认范围: ${escapeHtml(kbDept)} · ${escapeHtml(kbLevel)}</span>
+    <span>解析: ${escapeHtml(kb.default_parser || "auto")} · 模板: ${escapeHtml(kb.default_template || "auto")} · 检索: ${escapeHtml(kb.default_search_mode || "vector")}</span>
+    <span>top_k: ${escapeHtml(kb.default_top_k ?? "-")} · final_top_k: ${escapeHtml(kb.default_final_top_k ?? "-")}</span>
+    <span>标签: ${escapeHtml((kb.tags || []).join(", ") || "-")}</span>
+  `;
+
+  // Update button states
+  $("#edit-kb").disabled = actions.can_update === false;
+  $("#reindex-kb").disabled = actions.can_reindex === false;
+  $("#archive-kb").disabled = actions.can_delete === false;
+
   renderOverview(kb);
 }
 
@@ -791,6 +830,9 @@ $("#refresh-docs")?.addEventListener("click", loadKbDocuments);
 $("#refresh-jobs")?.addEventListener("click", loadKbJobs);
 $("#edit-kb")?.addEventListener("click", showKbEditForm);
 $("#archive-kb")?.addEventListener("click", () => changeKnowledgeBaseStatus("archive"));
+$("#reindex-kb")?.addEventListener("click", dryRunReindex);
+$("#close-kb-detail")?.addEventListener("click", hideKbDetail);
+$("#toggle-kb-detail")?.addEventListener("click", toggleKbDetail);
 
 $("#kb-create-form")?.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -817,8 +859,6 @@ $("#kb-create-form")?.addEventListener("submit", async (event) => {
   }
   await loadKnowledgeBases();
 });
-
-$("#reindex-kb")?.addEventListener("click", dryRunReindex);
 
 async function dryRunReindex() {
   if (!selectedKbId) return;

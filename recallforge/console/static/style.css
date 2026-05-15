@@ -251,10 +251,93 @@ a { color: inherit; text-decoration: none; }
 .panel-actions {
   display: flex;
   gap: 6px;
+  align-items: center;
+}
+
+.panel-actions .text-btn {
+  height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.panel-actions .text-btn svg {
+  width: 13px;
+  height: 13px;
 }
 
 .panel-head h3 { font-size: 14px; }
 .muted { color: var(--muted); font-size: 12px; }
+
+.kb-detail-section {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--accent-bg);
+  animation: fadeIn 0.2s ease-out;
+}
+
+.kb-detail-section .kb-detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.kb-detail-section .kb-detail-head > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.kb-detail-section .kb-detail-head strong {
+  color: var(--accent);
+  font-size: 14px;
+}
+
+.kb-detail-section .kb-detail-head span {
+  color: var(--ink-2);
+  font-size: 12px;
+}
+
+.kb-detail-section .kb-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.kb-detail-section .metric-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.kb-detail-section .metric-grid span {
+  display: grid;
+  gap: 1px;
+  padding: 8px 10px;
+  border: 1px solid var(--line-light);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.kb-detail-section .metric-grid strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.kb-detail-section .detail-lines {
+  display: grid;
+  gap: 3px;
+}
+
+.kb-detail-section .detail-lines span {
+  color: var(--ink-2);
+  font-size: 12px;
+}
 
 .kb-detail {
   display: grid;
