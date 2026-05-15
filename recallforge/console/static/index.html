@@ -85,6 +85,9 @@
                 <div class="panel-head">
                   <h3>文档管理</h3>
                   <div class="panel-actions">
+                    <button type="button" class="icon-btn" id="edit-kb" title="编辑知识库">
+                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 3.5l3 3L6 13H3v-3L9.5 3.5z"/><path d="M11 2l3 3"/></svg>
+                    </button>
                     <button type="button" class="icon-btn" id="upload-to-kb" title="上传文档">
                       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M8 11V3m0 0L5 6m3-3l3 3"/><path d="M2 11v2a1 1 0 001 1h10a1 1 0 001-1v-2"/></svg>
                     </button>
@@ -94,10 +97,48 @@
                     <button type="button" class="icon-btn" id="reindex-kb" title="重新索引">
                       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M2 8a6 6 0 0110.47-4M14 8a6 6 0 01-10.47 4"/><path d="M12 2v2.5H9.5M4 14v-2.5h2.5"/></svg>
                     </button>
+                    <button type="button" class="icon-btn danger-icon" id="archive-kb" title="归档知识库">
+                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4h12v9a1 1 0 01-1 1H3a1 1 0 01-1-1V4z"/><path d="M1.5 2h13"/><path d="M6 7h4"/></svg>
+                    </button>
                   </div>
                 </div>
                 <div id="kb-detail" class="kb-detail"></div>
-                <div id="kb-documents" class="doc-list"></div>
+                <div id="kb-editor" class="inline-editor" style="display:none"></div>
+                <div class="kb-tabs" role="tablist" aria-label="知识库视图">
+                  <button type="button" class="kb-tab active" data-kb-view-target="overview">概览</button>
+                  <button type="button" class="kb-tab" data-kb-view-target="files">文件</button>
+                  <button type="button" class="kb-tab" data-kb-view-target="chunks">切片</button>
+                  <button type="button" class="kb-tab" data-kb-view-target="jobs">任务</button>
+                </div>
+
+                <div class="kb-view active" data-kb-view="overview">
+                  <div id="kb-overview" class="overview-grid"></div>
+                </div>
+
+                <div class="kb-view" data-kb-view="files">
+                  <div class="subsection-head">
+                    <h4>文件</h4>
+                    <span id="doc-count" class="muted"></span>
+                  </div>
+                  <div id="kb-documents" class="doc-list"></div>
+                  <div id="document-detail" class="inline-editor" style="display:none"></div>
+                </div>
+
+                <div class="kb-view" data-kb-view="chunks">
+                  <div class="subsection-head">
+                    <h4>切片详情</h4>
+                    <span id="chunk-count" class="muted"></span>
+                  </div>
+                  <div id="chunk-detail" class="chunk-list"></div>
+                </div>
+
+                <div class="kb-view" data-kb-view="jobs">
+                  <div class="subsection-head">
+                    <h4>任务中心</h4>
+                    <button type="button" class="text-btn" id="refresh-jobs">刷新任务</button>
+                  </div>
+                  <div id="kb-jobs" class="job-list"></div>
+                </div>
               </section>
             </div>
           </div>

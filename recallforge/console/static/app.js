@@ -4,6 +4,10 @@ let pollTimer = null;
 let pollStartTime = 0;
 let selectedKbId = null;
 let selectedKbName = "";
+let selectedKb = null;
+let selectedDocumentId = null;
+let selectedDocumentTitle = "";
+let currentKbView = "overview";
 let pendingDeleteDocId = null;
 let pendingDeleteDocName = "";
 
@@ -79,6 +83,10 @@ $$("[data-panel]").forEach((link) => {
   });
 });
 
+$$("[data-kb-view-target]").forEach((button) => {
+  button.addEventListener("click", () => switchKbView(button.dataset.kbViewTarget));
+});
+
 function switchPage(pageId) {
   $$(".page").forEach((p) => p.classList.remove("active"));
   $$(".nav-item").forEach((n) => n.classList.remove("active"));
@@ -92,6 +100,17 @@ function switchPage(pageId) {
   const title = $("#topbar-title");
   if (title) title.textContent = pageTitles[pageId] || "";
   if (pageId === "page-kbs") loadKnowledgeBases();
+}
+
+function switchKbView(view) {
+  currentKbView = view || "overview";
+  $$("[data-kb-view]").forEach((panel) => {
+    panel.classList.toggle("active", panel.dataset.kbView === currentKbView);
+  });
+  $$("[data-kb-view-target]").forEach((tab) => {
+    tab.classList.toggle("active", tab.dataset.kbViewTarget === currentKbView);
+  });
+  if (currentKbView === "jobs") loadKbJobs();
 }
 
 /* ---- Modal Controls ---- */
@@ -147,9 +166,16 @@ $("#delete-confirm")?.addEventListener("click", async () => {
   setLoading(btn, true);
   
   try {
-    await request(`/api/knowledge-bases/${selectedKbId}/documents/${pendingDeleteDocId}`, { method: "DELETE" });
+    const deletedId = pendingDeleteDocId;
+    const data = await request(`/api/knowledge-bases/${selectedKbId}/documents/${deletedId}`, { method: "DELETE" });
+    if (apiFailed(data)) {
+      alert(`删除失败：${apiErrorText(data)}`);
+      return;
+    }
     closeDeleteModal();
+    if (selectedDocumentId === deletedId) hideDocumentDetail();
     await loadKbDocuments();
+    await loadKbJobs();
     await loadKnowledgeBases();
   } catch (err) {
     console.error("删除失败:", err);
@@ -162,16 +188,33 @@ $("#delete-confirm")?.addEventListener("click", async () => {
 
 async function loadKnowledgeBases() {
   const data = await request("/api/knowledge-bases");
+  if (apiFailed(data)) {
+    renderKbEmpty(`加载失败：${apiErrorText(data)}`);
+    return;
+  }
   const items = data.items || [];
   const count = $("#kb-count");
   if (count) count.textContent = `${items.length} 个`;
   const list = $("#kb-list");
   if (!list) return;
+
+  const matched = selectedKbId ? items.find((kb) => kb.knowledge_base_id === selectedKbId) : null;
+  if (selectedKbId && !matched) clearKnowledgeBaseSelection();
+  if (!selectedKbId && items[0]) {
+    selectedKb = items[0];
+    selectedKbId = items[0].knowledge_base_id;
+    selectedKbName = items[0].name;
+  } else if (matched) {
+    selectedKb = matched;
+    selectedKbName = matched.name;
+  }
+
   list.innerHTML = "";
   items.forEach((kb) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = `kb-row${selectedKbId === kb.knowledge_base_id ? " active" : ""}`;
+    button.dataset.kbId = String(kb.knowledge_base_id);
     button.innerHTML = `
       <span class="kb-row-title">${escapeHtml(kb.name)}</span>
       <span class="kb-row-meta">${escapeHtml(kb.role || "-")} · ${kb.document_count || 0} 文件 · ${kb.active_chunk_count || 0} chunks</span>
@@ -179,36 +222,252 @@ async function loadKnowledgeBases() {
     button.addEventListener("click", () => selectKnowledgeBase(kb));
     list.appendChild(button);
   });
-  if (!selectedKbId && items[0]) selectKnowledgeBase(items[0]);
+
+  if (selectedKb) {
+    renderKnowledgeBaseDetail(selectedKb);
+    await Promise.all([loadKbDocuments(), loadKbJobs()]);
+  } else {
+    renderKbEmpty("暂无知识库，先创建一个知识库。");
+  }
 }
 
 async function selectKnowledgeBase(kb) {
+  selectedKb = kb;
   selectedKbId = kb.knowledge_base_id;
   selectedKbName = kb.name;
-  const kbDept = kb["default_" + "depart" + "ment"] || "-";
-  const kbLevel = kb["default_" + "access" + "_level"] || "-";
+  selectedDocumentId = null;
+  selectedDocumentTitle = "";
+  updateKbActiveRows();
+  renderKnowledgeBaseDetail(kb);
+  hideKbEditor();
+  hideDocumentDetail();
+  renderChunkEmpty("选择一个文件后查看切片。");
+  await Promise.all([loadKbDocuments(), loadKbJobs()]);
+}
+
+function clearKnowledgeBaseSelection() {
+  selectedKb = null;
+  selectedKbId = null;
+  selectedKbName = "";
+  selectedDocumentId = null;
+  selectedDocumentTitle = "";
+}
+
+function renderKbEmpty(message) {
   const detail = $("#kb-detail");
-  if (detail) {
-    detail.className = "kb-detail";
-    detail.innerHTML = `
-      <strong>${escapeHtml(kb.name)}</strong>
-      <span>状态: ${escapeHtml(kb.status)} · 部门: ${escapeHtml(kbDept)} · 权限: ${escapeHtml(kbLevel)}</span>
-      <span>模型: ${escapeHtml(kb.embedding_model || "-")} · 重排: ${escapeHtml(kb.reranker_model || "-")}</span>
-    `;
+  const docs = $("#kb-documents");
+  const jobs = $("#kb-jobs");
+  const docCount = $("#doc-count");
+  if (detail) detail.innerHTML = `<div class="detail-empty">${escapeHtml(message)}</div>`;
+  if (docs) docs.innerHTML = "";
+  if (jobs) jobs.innerHTML = "";
+  if (docCount) docCount.textContent = "";
+  renderChunkEmpty("选择一个文件后查看切片。");
+  renderOverview(null);
+  hideKbEditor();
+  hideDocumentDetail();
+}
+
+function updateKbActiveRows() {
+  $$(".kb-row").forEach((row) => {
+    row.classList.toggle("active", Number(row.dataset.kbId) === selectedKbId);
+  });
+}
+
+function renderKnowledgeBaseDetail(kb) {
+  const detail = $("#kb-detail");
+  if (!detail) return;
+  const kbDept = getKbField(kb, "default_" + "depart" + "ment") || "-";
+  const kbLevel = getKbField(kb, "default_" + "access" + "_level") || "-";
+  const actions = kb.actions || {};
+  detail.className = "kb-detail rich";
+  detail.innerHTML = `
+    <div class="kb-detail-head">
+      <div>
+        <strong>${escapeHtml(kb.name)}</strong>
+        <span>${escapeHtml(kb.description || "无描述")}</span>
+      </div>
+      <span class="status-pill ${escapeHtml(kb.status || "active")}">${escapeHtml(kb.status || "-")}</span>
+    </div>
+    <div class="metric-grid">
+      <span><strong>${kb.document_count || 0}</strong> 文件</span>
+      <span><strong>${kb.active_chunk_count || 0}</strong> chunks</span>
+      <span><strong>${escapeHtml(kb.role || "-")}</strong> 角色</span>
+    </div>
+    <div class="detail-lines">
+      <span>默认范围: ${escapeHtml(kbDept)} · ${escapeHtml(kbLevel)}</span>
+      <span>解析: ${escapeHtml(kb.default_parser || "auto")} · 模板: ${escapeHtml(kb.default_template || "auto")} · 检索: ${escapeHtml(kb.default_search_mode || "vector")}</span>
+      <span>top_k: ${escapeHtml(kb.default_top_k ?? "-")} · final_top_k: ${escapeHtml(kb.default_final_top_k ?? "-")}</span>
+      <span>标签: ${escapeHtml((kb.tags || []).join(", ") || "-")}</span>
+    </div>
+    <div class="detail-actions">
+      <button type="button" class="text-btn" data-kb-action="edit" ${actions.can_update === false ? "disabled" : ""}>编辑</button>
+      <button type="button" class="text-btn" data-kb-action="reindex" ${actions.can_reindex === false ? "disabled" : ""}>reindex 预检</button>
+      <button type="button" class="text-btn danger" data-kb-action="archive" ${actions.can_delete === false ? "disabled" : ""}>归档</button>
+    </div>
+  `;
+  detail.querySelector('[data-kb-action="edit"]')?.addEventListener("click", showKbEditForm);
+  detail.querySelector('[data-kb-action="reindex"]')?.addEventListener("click", dryRunReindex);
+  detail.querySelector('[data-kb-action="archive"]')?.addEventListener("click", () => changeKnowledgeBaseStatus("archive"));
+  renderOverview(kb);
+}
+
+function renderOverview(kb) {
+  const target = $("#kb-overview");
+  if (!target) return;
+  if (!kb) {
+    target.innerHTML = '<div class="detail-empty">暂无知识库。</div>';
+    return;
   }
-  await loadKbDocuments();
+  target.innerHTML = `
+    <article class="overview-item">
+      <span>文件治理</span>
+      <strong>${kb.document_count || 0}</strong>
+      <p>进入“文件”页上传、查看详情、编辑 metadata 或删除文件。</p>
+      <button type="button" class="text-btn" data-overview-jump="files">查看文件</button>
+    </article>
+    <article class="overview-item">
+      <span>切片诊断</span>
+      <strong>${kb.active_chunk_count || 0}</strong>
+      <p>选择单个文件后查看 parent / child 切片、页码和 embedding 信息。</p>
+      <button type="button" class="text-btn" data-overview-jump="chunks">查看切片</button>
+    </article>
+    <article class="overview-item">
+      <span>任务中心</span>
+      <strong>${escapeHtml(kb.last_ingest_status || "-")}</strong>
+      <p>查看最近导入任务状态，上传完成后会自动刷新。</p>
+      <button type="button" class="text-btn" data-overview-jump="jobs">查看任务</button>
+    </article>
+  `;
+  target.querySelectorAll("[data-overview-jump]").forEach((button) => {
+    button.addEventListener("click", () => switchKbView(button.dataset.overviewJump));
+  });
+}
+
+function getKbField(kb, key) {
+  return kb ? kb[key] : null;
+}
+
+function showKbEditForm() {
+  if (!selectedKb) return;
+  const target = $("#kb-editor");
+  if (!target) return;
+  target.style.display = "grid";
+  target.innerHTML = `
+    <form id="kb-edit-form" class="editor-form">
+      <div class="form-grid compact-grid">
+        <div class="field">
+          <label for="kb-edit-name">名称</label>
+          <input id="kb-edit-name" type="text" value="${escapeAttr(selectedKb.name || "")}" required />
+        </div>
+        <div class="field">
+          <label for="kb-edit-tags">标签</label>
+          <input id="kb-edit-tags" type="text" value="${escapeAttr((selectedKb.tags || []).join(", "))}" placeholder="产品, 制度" />
+        </div>
+        <div class="field full">
+          <label for="kb-edit-description">描述</label>
+          <input id="kb-edit-description" type="text" value="${escapeAttr(selectedKb.description || "")}" />
+        </div>
+        <div class="field">
+          <label for="kb-edit-parser">默认解析器</label>
+          <input id="kb-edit-parser" type="text" value="${escapeAttr(selectedKb.default_parser || "auto")}" />
+        </div>
+        <div class="field">
+          <label for="kb-edit-template">默认模板</label>
+          <input id="kb-edit-template" type="text" value="${escapeAttr(selectedKb.default_template || "auto")}" />
+        </div>
+        <div class="field">
+          <label for="kb-edit-topk">召回 top_k</label>
+          <input id="kb-edit-topk" type="number" min="1" value="${escapeAttr(selectedKb.default_top_k || "")}" />
+        </div>
+        <div class="field">
+          <label for="kb-edit-final-topk">最终 top_k</label>
+          <input id="kb-edit-final-topk" type="number" min="1" value="${escapeAttr(selectedKb.default_final_top_k || "")}" />
+        </div>
+      </div>
+      <div class="editor-actions">
+        <button type="button" class="secondary-btn" id="kb-edit-cancel">取消</button>
+        <button type="submit" class="primary-btn compact">保存</button>
+      </div>
+    </form>
+  `;
+  $("#kb-edit-cancel")?.addEventListener("click", hideKbEditor);
+  $("#kb-edit-form")?.addEventListener("submit", submitKbEdit);
+}
+
+function hideKbEditor() {
+  const target = $("#kb-editor");
+  if (target) {
+    target.style.display = "none";
+    target.innerHTML = "";
+  }
+}
+
+async function submitKbEdit(event) {
+  event.preventDefault();
+  if (!selectedKbId) return;
+  const form = event.currentTarget;
+  const payload = {
+    name: $("#kb-edit-name").value.trim(),
+    description: $("#kb-edit-description").value.trim() || null,
+    tags: $("#kb-edit-tags").value.split(",").map((item) => item.trim()).filter(Boolean),
+    default_parser: $("#kb-edit-parser").value.trim() || "auto",
+    default_template: $("#kb-edit-template").value.trim() || "auto",
+  };
+  const topK = $("#kb-edit-topk").value.trim();
+  const finalTopK = $("#kb-edit-final-topk").value.trim();
+  if (topK) payload.default_top_k = Number(topK);
+  if (finalTopK) payload.default_final_top_k = Number(finalTopK);
+  setLoading(form.querySelector('button[type="submit"]'), true);
+  const data = await request(`/api/knowledge-bases/${selectedKbId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  setLoading(form.querySelector('button[type="submit"]'), false);
+  if (apiFailed(data)) {
+    alert(`保存失败：${apiErrorText(data)}`);
+    return;
+  }
+  hideKbEditor();
+  selectedKb = data;
+  selectedKbName = data.name;
+  await loadKnowledgeBases();
+}
+
+async function changeKnowledgeBaseStatus(mode) {
+  if (!selectedKbId || !selectedKb) return;
+  const label = mode === "delete" ? "删除" : "归档";
+  if (!window.confirm(`确认${label}知识库「${selectedKbName}」？关联文件将不再出现在 active 列表中。`)) return;
+  const data = await request(`/api/knowledge-bases/${selectedKbId}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mode, reason: "console action" }),
+  });
+  if (apiFailed(data)) {
+    alert(`${label}失败：${apiErrorText(data)}`);
+    return;
+  }
+  clearKnowledgeBaseSelection();
   await loadKnowledgeBases();
 }
 
 async function loadKbDocuments() {
   const target = $("#kb-documents");
+  const count = $("#doc-count");
   if (!target || !selectedKbId) return;
   
   target.innerHTML = '<div class="detail-empty">加载中...</div>';
   
   try {
     const data = await request(`/api/knowledge-bases/${selectedKbId}/documents`);
+    if (apiFailed(data)) {
+      target.innerHTML = `<div class="detail-empty">加载失败：${escapeHtml(apiErrorText(data))}</div>`;
+      if (count) count.textContent = "";
+      return;
+    }
     const docs = data.items || [];
+    if (count) count.textContent = `${docs.length} 个`;
     
     if (!docs.length) {
       target.innerHTML = '<div class="detail-empty">暂无文档。点击右上角上传按钮添加文档。</div>';
@@ -218,7 +477,8 @@ async function loadKbDocuments() {
     target.innerHTML = "";
     docs.forEach((doc) => {
       const row = document.createElement("div");
-      row.className = "doc-row";
+      row.className = `doc-row${selectedDocumentId === doc.document_id ? " active" : ""}`;
+      row.dataset.documentId = String(doc.document_id);
       
       const title = doc.title || doc.source_name || doc.source_uri || "未命名文档";
       const statusClass = doc.status === "active" ? "active" : doc.status === "pending" ? "pending" : "failed";
@@ -235,14 +495,31 @@ async function loadKbDocuments() {
           </div>
         </div>
         <div class="doc-actions">
-          <button type="button" class="text-btn danger" data-document-id="${doc.document_id}" title="删除文档">
+          <button type="button" class="text-btn" data-doc-action="detail" title="查看详情">详情</button>
+          <button type="button" class="text-btn" data-doc-action="edit" title="编辑文档">编辑</button>
+          <button type="button" class="text-btn" data-doc-action="chunks" title="查看切片">切片</button>
+          <button type="button" class="text-btn danger" data-doc-action="delete" data-document-id="${doc.document_id}" title="删除文档">
             ${deleteIconSVG()}
             删除
           </button>
         </div>
       `;
       
-      row.querySelector(".text-btn").addEventListener("click", () => {
+      row.addEventListener("click", () => loadDocumentDetail(doc.document_id, false));
+      row.querySelector('[data-doc-action="detail"]').addEventListener("click", (event) => {
+        event.stopPropagation();
+        loadDocumentDetail(doc.document_id, false);
+      });
+      row.querySelector('[data-doc-action="edit"]').addEventListener("click", (event) => {
+        event.stopPropagation();
+        loadDocumentDetail(doc.document_id, true);
+      });
+      row.querySelector('[data-doc-action="chunks"]').addEventListener("click", (event) => {
+        event.stopPropagation();
+        loadDocumentChunks(doc.document_id, title);
+      });
+      row.querySelector('[data-doc-action="delete"]').addEventListener("click", (event) => {
+        event.stopPropagation();
         openDeleteModal(doc.document_id, title);
       });
       
@@ -254,31 +531,306 @@ async function loadKbDocuments() {
   }
 }
 
+async function loadDocumentDetail(documentId, editing) {
+  if (!selectedKbId) return;
+  selectedDocumentId = documentId;
+  $$(".doc-row").forEach((row) => row.classList.toggle("active", Number(row.dataset.documentId) === documentId));
+  const target = $("#document-detail");
+  if (!target) return;
+  target.style.display = "grid";
+  target.innerHTML = '<div class="detail-empty">加载文档详情...</div>';
+  const data = await request(`/api/knowledge-bases/${selectedKbId}/documents/${documentId}`);
+  if (apiFailed(data)) {
+    target.innerHTML = `<div class="detail-empty">加载失败：${escapeHtml(apiErrorText(data))}</div>`;
+    return;
+  }
+  selectedDocumentTitle = data.title || data.source_name || data.source_uri || "未命名文档";
+  renderDocumentDetail(data, editing);
+}
+
+function renderDocumentDetail(doc, editing) {
+  const target = $("#document-detail");
+  if (!target) return;
+  const title = doc.title || doc.source_name || doc.source_uri || "未命名文档";
+  target.style.display = "grid";
+  target.innerHTML = `
+    <div class="doc-detail-head">
+      <div>
+        <strong>${escapeHtml(title)}</strong>
+        <span>${escapeHtml(doc.source_uri || "-")}</span>
+      </div>
+      <span class="status-pill ${escapeHtml(doc.status || "active")}">${escapeHtml(doc.status || "-")}</span>
+    </div>
+    <div class="metric-grid">
+      <span><strong>v${doc.version}</strong> 版本</span>
+      <span><strong>${doc.parent_chunk_count || 0}</strong> parent</span>
+      <span><strong>${doc.child_chunk_count || 0}</strong> child</span>
+      <span><strong>${escapeHtml(doc.embedding_status || "-")}</strong> embedding</span>
+    </div>
+    <div class="detail-lines">
+      <span>类型: ${escapeHtml(doc.doc_type || "-")} · 最近任务: ${escapeHtml(doc.last_ingest_status || "-")}</span>
+      <span>hash: ${escapeHtml(doc.content_hash || "-")}</span>
+      <span>创建: ${escapeHtml(formatDate(doc.created_at))} · 更新: ${escapeHtml(formatDate(doc.updated_at))}</span>
+    </div>
+    <div class="detail-actions">
+      <button type="button" class="text-btn" id="doc-edit-toggle">${editing ? "收起编辑" : "编辑 metadata"}</button>
+      <button type="button" class="text-btn" id="doc-chunks-inline">查看切片</button>
+      <button type="button" class="text-btn danger" id="doc-delete-inline">删除</button>
+    </div>
+    <form id="doc-edit-form" class="editor-form" style="display:${editing ? "grid" : "none"}">
+      <div class="form-grid compact-grid">
+        <div class="field">
+          <label for="doc-edit-title">标题</label>
+          <input id="doc-edit-title" type="text" value="${escapeAttr(doc.title || "")}" />
+        </div>
+        <div class="field">
+          <label for="doc-edit-source-name">显示文件名</label>
+          <input id="doc-edit-source-name" type="text" value="${escapeAttr(doc.source_name || "")}" />
+        </div>
+        <div class="field">
+          <label for="doc-edit-type">文档类型</label>
+          <input id="doc-edit-type" type="text" value="${escapeAttr(doc.doc_type || "")}" />
+        </div>
+        <div class="field full">
+          <label for="doc-edit-metadata">业务 metadata JSON</label>
+          <input id="doc-edit-metadata" type="text" placeholder='{"product":"demo"}' />
+        </div>
+      </div>
+      <div class="editor-actions">
+        <button type="button" class="secondary-btn" id="doc-edit-cancel">取消</button>
+        <button type="submit" class="primary-btn compact">保存文档</button>
+      </div>
+    </form>
+  `;
+  $("#doc-edit-toggle")?.addEventListener("click", () => {
+    const form = $("#doc-edit-form");
+    if (form) form.style.display = form.style.display === "none" ? "grid" : "none";
+  });
+  $("#doc-edit-cancel")?.addEventListener("click", () => {
+    const form = $("#doc-edit-form");
+    if (form) form.style.display = "none";
+  });
+  $("#doc-delete-inline")?.addEventListener("click", () => openDeleteModal(doc.document_id, title));
+  $("#doc-chunks-inline")?.addEventListener("click", () => loadDocumentChunks(doc.document_id, title));
+  $("#doc-edit-form")?.addEventListener("submit", submitDocumentEdit);
+}
+
+function hideDocumentDetail() {
+  selectedDocumentId = null;
+  const target = $("#document-detail");
+  if (target) {
+    target.style.display = "none";
+    target.innerHTML = "";
+  }
+}
+
+async function loadDocumentChunks(documentId, title) {
+  if (!selectedKbId) return;
+  selectedDocumentId = documentId;
+  selectedDocumentTitle = title || selectedDocumentTitle || "当前文件";
+  $$(".doc-row").forEach((row) => row.classList.toggle("active", Number(row.dataset.documentId) === documentId));
+  switchKbView("chunks");
+  const target = $("#chunk-detail");
+  const count = $("#chunk-count");
+  if (!target) return;
+  target.innerHTML = '<div class="detail-empty">加载切片...</div>';
+  if (count) count.textContent = "";
+  const data = await request(`/api/knowledge-bases/${selectedKbId}/documents/${documentId}/chunks`);
+  if (apiFailed(data)) {
+    target.innerHTML = `<div class="detail-empty">加载失败：${escapeHtml(apiErrorText(data))}</div>`;
+    return;
+  }
+  renderDocumentChunks(data, selectedDocumentTitle);
+}
+
+function renderDocumentChunks(data, title) {
+  const target = $("#chunk-detail");
+  const count = $("#chunk-count");
+  if (!target) return;
+  const parents = data.items || [];
+  if (count) count.textContent = `${data.parent_chunk_count || parents.length} parent / ${data.child_chunk_count || 0} child`;
+  if (!parents.length) {
+    target.innerHTML = '<div class="detail-empty">这个文件还没有 active 切片。</div>';
+    return;
+  }
+  target.innerHTML = `
+    <div class="chunk-toolbar">
+      <div>
+        <strong>${escapeHtml(title || "当前文件")}</strong>
+        <span>${data.parent_chunk_count || parents.length} parent · ${data.child_chunk_count || 0} child</span>
+      </div>
+      <button type="button" class="text-btn" id="back-to-files">返回文件</button>
+    </div>
+    ${parents.map(renderParentChunk).join("")}
+  `;
+  $("#back-to-files")?.addEventListener("click", () => switchKbView("files"));
+}
+
+function renderParentChunk(parent) {
+  const heading = Array.isArray(parent.heading_path) && parent.heading_path.length ? parent.heading_path.join(" / ") : "无标题路径";
+  const children = parent.child_chunks || [];
+  return `
+    <article class="chunk-parent">
+      <details open>
+        <summary>
+          <span>Parent #${parent.chunk_index} · ${escapeHtml(parent.parent_key)}</span>
+          <small>${children.length} child · ${escapeHtml(pageLabel(parent.page_start, parent.page_end))}</small>
+        </summary>
+        <div class="chunk-meta">
+          <span>${escapeHtml(heading)}</span>
+          <span>tokens ${parent.token_count ?? "-"}</span>
+          <span>${escapeHtml(parent.status || "-")}</span>
+        </div>
+        <pre class="chunk-content">${escapeHtml(parent.content || "")}</pre>
+        <div class="child-chunk-list">
+          ${children.map(renderChildChunk).join("") || '<div class="detail-empty">没有 child chunk。</div>'}
+        </div>
+      </details>
+    </article>
+  `;
+}
+
+function renderChildChunk(child) {
+  const heading = Array.isArray(child.heading_path) && child.heading_path.length ? child.heading_path.join(" / ") : "-";
+  return `
+    <article class="chunk-child">
+      <div class="chunk-child-head">
+        <strong>Child #${child.chunk_index} · ${escapeHtml(child.chunk_key)}</strong>
+        <span>${escapeHtml(child.embedding_model || "-")} / ${child.embedding_dim || "-"}</span>
+      </div>
+      <div class="chunk-meta">
+        <span>${escapeHtml(heading)}</span>
+        <span>页码 ${escapeHtml(pageLabel(child.page_start, child.page_end))}</span>
+        <span>${escapeHtml(child.status || "-")}</span>
+      </div>
+      <pre class="chunk-content child">${escapeHtml(child.content || "")}</pre>
+    </article>
+  `;
+}
+
+function renderChunkEmpty(message) {
+  const target = $("#chunk-detail");
+  const count = $("#chunk-count");
+  if (target) target.innerHTML = `<div class="detail-empty">${escapeHtml(message)}</div>`;
+  if (count) count.textContent = "";
+}
+
+async function submitDocumentEdit(event) {
+  event.preventDefault();
+  if (!selectedKbId || !selectedDocumentId) return;
+  const form = event.currentTarget;
+  const payload = {};
+  addTrimmed(payload, "title", "#doc-edit-title");
+  addTrimmed(payload, "source_name", "#doc-edit-source-name");
+  addTrimmed(payload, "doc_type", "#doc-edit-type");
+  const metadataText = $("#doc-edit-metadata").value.trim();
+  if (metadataText) {
+    try {
+      payload.metadata = JSON.parse(metadataText);
+    } catch {
+      alert("metadata 必须是合法 JSON 对象");
+      return;
+    }
+    if (!payload.metadata || Array.isArray(payload.metadata) || typeof payload.metadata !== "object") {
+      alert("metadata 必须是 JSON 对象");
+      return;
+    }
+  }
+  if (!Object.keys(payload).length) {
+    alert("没有需要保存的变更");
+    return;
+  }
+  const submit = form.querySelector('button[type="submit"]');
+  setLoading(submit, true);
+  const data = await request(`/api/knowledge-bases/${selectedKbId}/documents/${selectedDocumentId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  setLoading(submit, false);
+  if (apiFailed(data)) {
+    alert(`保存失败：${apiErrorText(data)}`);
+    return;
+  }
+  renderDocumentDetail(data, false);
+  await loadKbDocuments();
+}
+
+async function loadKbJobs() {
+  const target = $("#kb-jobs");
+  if (!target || !selectedKbId) return;
+  target.innerHTML = '<div class="detail-empty">加载任务...</div>';
+  const data = await request(`/api/knowledge-bases/${selectedKbId}/ingest-jobs?limit=8`);
+  if (apiFailed(data)) {
+    target.innerHTML = `<div class="detail-empty">加载失败：${escapeHtml(apiErrorText(data))}</div>`;
+    return;
+  }
+  const jobs = Array.isArray(data) ? data : [];
+  if (!jobs.length) {
+    target.innerHTML = '<div class="detail-empty">暂无导入任务。</div>';
+    return;
+  }
+  target.innerHTML = jobs.map((job) => `
+    <article class="job-row">
+      <div>
+        <strong>${escapeHtml(job.source_name || job.source_uri || "未命名任务")}</strong>
+        <span>${escapeHtml(job.job_id || "-")}</span>
+      </div>
+      <div class="job-row-meta">
+        <span class="doc-status ${job.status === "success" || job.status === "skipped_duplicate" ? "active" : (job.status === "failed" ? "failed" : "pending")}">${escapeHtml(STATUS_LABELS[job.status] || job.status || "-")}</span>
+        <span>${escapeHtml(job.doc_type || "-")}</span>
+        <span>${job.parent_chunk_count || 0}P / ${job.child_chunk_count || 0}C</span>
+        <span>${escapeHtml(formatDate(job.updated_at || job.created_at))}</span>
+      </div>
+    </article>
+  `).join("");
+}
+
 $("#refresh-kbs")?.addEventListener("click", loadKnowledgeBases);
 $("#refresh-docs")?.addEventListener("click", loadKbDocuments);
+$("#refresh-jobs")?.addEventListener("click", loadKbJobs);
+$("#edit-kb")?.addEventListener("click", showKbEditForm);
+$("#archive-kb")?.addEventListener("click", () => changeKnowledgeBaseStatus("archive"));
 
 $("#kb-create-form")?.addEventListener("submit", async (event) => {
   event.preventDefault();
   const input = $("#kb-name");
   const name = input.value.trim();
   if (!name) return;
+  const submit = event.currentTarget.querySelector('button[type="submit"]');
+  setLoading(submit, true);
   const data = await request("/api/knowledge-bases", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name }),
   });
+  setLoading(submit, false);
+  if (apiFailed(data)) {
+    alert(`创建失败：${apiErrorText(data)}`);
+    return;
+  }
   input.value = "";
-  if (data.knowledge_base_id) selectedKbId = data.knowledge_base_id;
+  if (data.knowledge_base_id) {
+    selectedKb = data;
+    selectedKbId = data.knowledge_base_id;
+    selectedKbName = data.name;
+  }
   await loadKnowledgeBases();
 });
 
-$("#reindex-kb")?.addEventListener("click", async () => {
+$("#reindex-kb")?.addEventListener("click", dryRunReindex);
+
+async function dryRunReindex() {
   if (!selectedKbId) return;
   const data = await request(`/api/knowledge-bases/${selectedKbId}/reindex`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ dry_run: true }),
   });
+  if (apiFailed(data)) {
+    alert(`reindex 预检失败：${apiErrorText(data)}`);
+    return;
+  }
   const detail = $("#kb-detail");
   if (detail) {
     const existing = detail.querySelector(".reindex-hint");
@@ -290,7 +842,44 @@ $("#reindex-kb")?.addEventListener("click", async () => {
     hint.textContent = `Reindex 预检: 约 ${data.estimated_documents || 0} 个文件`;
     detail.appendChild(hint);
   }
-});
+  if ((data.estimated_documents || 0) > 0 && window.confirm(`预检约 ${data.estimated_documents} 个文件。现在提交 reindex 任务？`)) {
+    await submitReindexRun();
+  }
+}
+
+async function submitReindexRun() {
+  const data = await request(`/api/knowledge-bases/${selectedKbId}/reindex`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ dry_run: false }),
+  });
+  if (apiFailed(data)) {
+    alert(`reindex 提交失败：${apiErrorText(data)}`);
+    return;
+  }
+  alert(`reindex 已提交：${data.status || "queued"}`);
+  await loadKbJobs();
+}
+
+function addTrimmed(payload, key, selector) {
+  const value = $(selector)?.value.trim();
+  if (value) payload[key] = value;
+}
+
+function apiFailed(data) {
+  return Boolean(data && data.error);
+}
+
+function apiErrorText(data) {
+  return data?.error?.message || data?.error?.code || "请求失败";
+}
+
+function formatDate(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString("zh-CN", { hour12: false });
+}
 
 /* ---- Mobile Sidebar ---- */
 
@@ -534,6 +1123,10 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
+function escapeAttr(str) {
+  return escapeHtml(String(str ?? "")).replace(/"/g, "&quot;");
+}
+
 function formatTime(iso) {
   try { return new Date(iso).toLocaleString("zh-CN"); }
   catch { return iso; }
@@ -562,9 +1155,11 @@ async function pollJobStatus(jobId) {
     stopJobPolling();
     // 刷新文档列表
     if (selectedKbId) await loadKbDocuments();
+    if (selectedKbId) await loadKbJobs();
   } else if (data.status === "failed") {
     setUploadPhase("error");
     stopJobPolling();
+    if (selectedKbId) await loadKbJobs();
   } else if (data.status === "running" && uploadPhase === "uploading") {
     setUploadPhase("processing");
   }
@@ -701,8 +1296,10 @@ $("#upload-form")?.addEventListener("submit", async (event) => {
         setUploadPhase("complete");
         // 刷新文档列表
         if (selectedKbId) await loadKbDocuments();
+        if (selectedKbId) await loadKbJobs();
       } else {
         setUploadPhase("processing");
+        if (selectedKbId) await loadKbJobs();
         startJobPolling(res.data.job_id);
       }
     } else if (res.ok) {
@@ -780,6 +1377,7 @@ async function request(endpoint, options = {}) {
     const response = await fetch(endpoint, options);
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
+      if (!data.error) data.error = { code: "http_error", message: `HTTP ${response.status}` };
       statusEl.textContent = `${response.status} ${data.error?.code || "error"}`;
       statusDot.classList.remove("connected");
     } else {
