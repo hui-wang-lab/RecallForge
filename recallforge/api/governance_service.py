@@ -15,6 +15,7 @@ from recallforge.governance.audit import AuditLogger
 from recallforge.governance.permissions import KnowledgeBasePermissionError, KnowledgeBasePermissionService
 from recallforge.storage.repository import (
     AuditEventRepository,
+    ChunkRepository,
     DocumentRepository,
     DocumentVersionRepository,
     IngestJobRepository,
@@ -22,11 +23,14 @@ from recallforge.storage.repository import (
     KnowledgeBaseMemberRepository,
     KnowledgeBaseRepository,
     KnowledgeBaseUpdate,
+    ParentChunkRepository,
 )
 
 from .errors import ApiError, ResourceNotFoundError, ValidationApiError
 from .knowledge_service import KnowledgeService
 from .schemas import (
+    ChildChunkDetailResponse,
+    DocumentChunkDetailResponse,
     DocumentDeleteResponse,
     DocumentIngestResponse,
     DocumentListResponse,
@@ -39,6 +43,7 @@ from .schemas import (
     KnowledgeBaseListResponse,
     KnowledgeBaseResponse,
     KnowledgeBaseUpdateRequest,
+    ParentChunkDetailResponse,
     ReindexRequest,
     ReindexResponse,
 )
@@ -285,6 +290,76 @@ class GovernanceService:
                 limit=1,
             )
         return _document_summary(doc, jobs[0] if jobs else None)
+
+    async def list_document_chunks(
+        self,
+        kb_id: int,
+        document_id: int,
+        ctx: RequestContext,
+        *,
+        parent_limit: int = 200,
+        child_limit: int = 500,
+    ) -> DocumentChunkDetailResponse:
+        async with self._session_factory() as session:
+            await self._require(session, ctx, kb_id, "view")
+            doc = await DocumentRepository(session).get(document_id, ctx.tenant_id, knowledge_base_id=kb_id)
+            if doc is None:
+                raise ResourceNotFoundError("document not found")
+            parents = await ParentChunkRepository(session).list_by_document(
+                ctx.tenant_id,
+                document_id,
+                knowledge_base_id=kb_id,
+                limit=parent_limit,
+            )
+            children = await ChunkRepository(session).list_by_document(
+                ctx.tenant_id,
+                document_id,
+                knowledge_base_id=kb_id,
+                limit=child_limit,
+            )
+
+        children_by_parent: dict[int, list[Any]] = {}
+        for child in children:
+            children_by_parent.setdefault(child.parent_id, []).append(child)
+
+        return DocumentChunkDetailResponse(
+            document_id=document_id,
+            knowledge_base_id=kb_id,
+            parent_chunk_count=len(parents),
+            child_chunk_count=len(children),
+            items=[
+                ParentChunkDetailResponse(
+                    parent_id=parent.id,
+                    parent_key=parent.parent_key,
+                    chunk_index=parent.chunk_index,
+                    content=parent.content,
+                    token_count=parent.token_count,
+                    page_start=parent.page_start,
+                    page_end=parent.page_end,
+                    heading_path=parent.heading_path,
+                    status=parent.status,
+                    child_chunks=[
+                        ChildChunkDetailResponse(
+                            chunk_id=child.id,
+                            chunk_key=child.chunk_key,
+                            parent_id=child.parent_id,
+                            parent_key=child.parent_key,
+                            chunk_index=child.chunk_index,
+                            content=child.content,
+                            page_start=child.page_start,
+                            page_end=child.page_end,
+                            heading_path=child.heading_path,
+                            embedding_model=child.embedding_model,
+                            embedding_dim=child.embedding_dim,
+                            status=child.status,
+                        )
+                        for child in children_by_parent.get(parent.id, [])
+                    ],
+                )
+                for parent in parents
+            ],
+            trace_id=str(ctx.request_id),
+        )
 
     async def update_document(
         self,

@@ -11,6 +11,7 @@ from recallforge.api.routes.knowledge import _metadata_from_form, _optional_form
 from recallforge.api.schemas import (
     FORBIDDEN_IDENTITY_FIELDS,
     DocumentDeleteResponse,
+    DocumentChunkDetailResponse,
     DocumentIngestResponse,
     DocumentListResponse,
     DocumentSummaryResponse,
@@ -141,6 +142,24 @@ async def get_document(
     service: GovernanceService = Depends(get_governance_service),
 ):
     return await service.get_document(kb_id, document_id, auth.context)
+
+
+@router.get("/{kb_id}/documents/{document_id}/chunks", response_model=DocumentChunkDetailResponse)
+async def list_document_chunks(
+    kb_id: int,
+    document_id: int,
+    parent_limit: int = Query(default=200, gt=0, le=1000),
+    child_limit: int = Query(default=500, gt=0, le=3000),
+    auth: AuthenticatedRequest = Depends(require_any_scope("documents:read", "knowledge:read")),
+    service: GovernanceService = Depends(get_governance_service),
+) -> DocumentChunkDetailResponse:
+    return await service.list_document_chunks(
+        kb_id,
+        document_id,
+        auth.context,
+        parent_limit=parent_limit,
+        child_limit=child_limit,
+    )
 
 
 @router.patch("/{kb_id}/documents/{document_id}", response_model=DocumentSummaryResponse)

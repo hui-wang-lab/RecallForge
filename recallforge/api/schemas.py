@@ -365,6 +365,44 @@ class DocumentListResponse(StrictModel):
     trace_id: str
 
 
+class ChildChunkDetailResponse(StrictModel):
+    chunk_id: int
+    chunk_key: str
+    parent_id: int
+    parent_key: str
+    chunk_index: int
+    content: str
+    token_count: int | None = None
+    page_start: int | None = None
+    page_end: int | None = None
+    heading_path: list[str] | None = None
+    embedding_model: str
+    embedding_dim: int
+    status: str
+
+
+class ParentChunkDetailResponse(StrictModel):
+    parent_id: int
+    parent_key: str
+    chunk_index: int
+    content: str
+    token_count: int | None = None
+    page_start: int | None = None
+    page_end: int | None = None
+    heading_path: list[str] | None = None
+    status: str
+    child_chunks: list[ChildChunkDetailResponse] = Field(default_factory=list)
+
+
+class DocumentChunkDetailResponse(StrictModel):
+    document_id: int
+    knowledge_base_id: int
+    parent_chunk_count: int
+    child_chunk_count: int
+    items: list[ParentChunkDetailResponse] = Field(default_factory=list)
+    trace_id: str
+
+
 class DocumentUpdateRequest(StrictModel):
     title: str | None = None
     source_name: str | None = None

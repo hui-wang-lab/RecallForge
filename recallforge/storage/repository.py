@@ -1817,6 +1817,30 @@ class ParentChunkRepository:
         rows = (await self._session.execute(stmt)).scalars().all()
         return [_parent_to_record(r) for r in rows]
 
+    async def list_by_document(
+        self,
+        tenant_id: TenantId,
+        document_id: DocumentId,
+        *,
+        knowledge_base_id: int | None = None,
+        statuses: Sequence[DocumentStatus] = ("active",),
+        limit: int = 200,
+    ) -> list[ParentChunkRecord]:
+        stmt = (
+            select(RagParentChunk)
+            .where(
+                RagParentChunk.tenant_id == tenant_id,
+                RagParentChunk.document_id == document_id,
+                RagParentChunk.status.in_(statuses),
+            )
+            .order_by(RagParentChunk.chunk_index.asc(), RagParentChunk.id.asc())
+            .limit(limit)
+        )
+        if knowledge_base_id is not None:
+            stmt = stmt.where(RagParentChunk.knowledge_base_id == knowledge_base_id)
+        rows = (await self._session.execute(stmt)).scalars().all()
+        return [_parent_to_record(row) for row in rows]
+
     async def mark_by_document_status(
         self,
         document_id: DocumentId,
@@ -1976,6 +2000,30 @@ class ChunkRepository:
         )
         rows = (await self._session.execute(stmt)).scalars().all()
         return [_chunk_to_record(r) for r in rows]
+
+    async def list_by_document(
+        self,
+        tenant_id: TenantId,
+        document_id: DocumentId,
+        *,
+        knowledge_base_id: int | None = None,
+        statuses: Sequence[DocumentStatus] = ("active",),
+        limit: int = 500,
+    ) -> list[ChildChunkRecord]:
+        stmt = (
+            select(RagChunk)
+            .where(
+                RagChunk.tenant_id == tenant_id,
+                RagChunk.document_id == document_id,
+                RagChunk.status.in_(statuses),
+            )
+            .order_by(RagChunk.parent_id.asc(), RagChunk.chunk_index.asc(), RagChunk.id.asc())
+            .limit(limit)
+        )
+        if knowledge_base_id is not None:
+            stmt = stmt.where(RagChunk.knowledge_base_id == knowledge_base_id)
+        rows = (await self._session.execute(stmt)).scalars().all()
+        return [_chunk_to_record(row) for row in rows]
 
     async def list_for_embedding_backfill(
         self,
