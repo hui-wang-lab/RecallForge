@@ -70,6 +70,54 @@ class Settings(BaseSettings):
     # ── Observability ─────────────────────────────────────
     log_level: str = "INFO"
 
+    # ── M5 HTTP API ───────────────────────────────────────
+    api_enabled: bool = True
+    api_title: str = "RecallForge Knowledge API"
+    api_jwt_issuer: str = ""
+    api_jwt_audience: str = ""
+    api_jwt_public_key: str = ""
+    api_service_keys: str = ""
+    api_require_auth: bool = True
+    api_request_id_header: str = "X-Request-Id"
+    api_cors_allowed_origins: str = ""
+    api_docs_enabled: bool = False
+    api_openapi_enabled: bool = True
+    api_startup_preflight_enabled: bool = False
+
+    # ── M5 Console and uploads ────────────────────────────
+    console_enabled: bool = False
+    upload_temp_dir: str = ".tmp/uploads"
+    upload_cleanup_enabled: bool = True
+    upload_startup_cleanup_enabled: bool = True
+    upload_temp_ttl_seconds: int = 86_400
+    auto_embedding_backfill_on_ingest: bool = True
+    ingest_backfill_limit: int = 20_000
+
+    # ── M6 Knowledge governance ───────────────────────────
+    default_knowledge_base_name: str = "Default Knowledge Base"
+    require_knowledge_base_scope: bool = True
+    allow_implicit_all_accessible_kbs: bool = True
+    max_knowledge_bases_per_query: int = 20
+    kb_list_default_limit: int = 20
+    document_list_default_limit: int = 50
+    document_delete_vector_sync_required: bool = True
+    kb_delete_requires_empty: bool = False
+    reindex_max_documents_per_request: int = 1000
+    audit_enabled: bool = True
+
+    # ── M5 Answer generation ──────────────────────────────
+    answer_generation_enabled: bool = False
+    llm_provider: str = ""
+    llm_model: str = ""
+    llm_endpoint: str = ""
+    llm_api_key: str = ""
+    llm_request_timeout_seconds: float = 60.0
+    llm_max_retries: int = 2
+    answer_max_tokens: int = 2048
+    answer_temperature: float = 0.0
+    answer_validate_citations: bool = True
+    answer_repair_invalid_citations: bool = True
+
     @field_validator("openai_api_key")
     @classmethod
     def _warn_empty_api_key(cls, v: str) -> str:

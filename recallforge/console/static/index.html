@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AI 知识治理平台</title>
+    <link rel="stylesheet" href="/console/style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <section class="brand">
+          <div class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 32 32" fill="none">
+              <rect width="32" height="32" rx="8" fill="url(#bg1)"/>
+              <path d="M16 8l8 4v8l-8 4-8-4v-8l8-4z" fill="#fff" opacity=".9"/>
+              <circle cx="16" cy="16" r="3" fill="url(#bg1)"/>
+              <defs>
+                <linearGradient id="bg1" x1="0" y1="0" x2="32" y2="32">
+                  <stop stop-color="#7c5cfc"/><stop offset="1" stop-color="#b78aff"/>
+                </linearGradient>
+              </defs>
+            </svg>
+          </div>
+          <h1>AI 知识治理平台</h1>
+        </section>
+
+        <nav class="nav-stack" aria-label="Console navigation">
+          <a class="nav-item" data-panel="page-kbs">
+            <span class="nav-icon"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5l7-3 7 3-7 3-7-3z"/><path d="M3 10l7 3 7-3"/><path d="M3 15l7 3 7-3"/></svg></span>
+            知识库
+          </a>
+          <a class="nav-item active" data-panel="page-answer">
+            <span class="nav-icon"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2z"/><path d="M7 7h6M7 10h4"/></svg></span>
+            智能问答
+          </a>
+          <a class="nav-item" data-panel="page-upload">
+            <span class="nav-icon"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13V3m0 0L6 7m4-4l4 4"/><path d="M3 14v2a2 2 0 002 2h10a2 2 0 002-2v-2"/></svg></span>
+            文档导入
+          </a>
+          <a class="nav-item" data-panel="page-references">
+            <span class="nav-icon"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h12v14l-6-3-6 3V4z"/></svg></span>
+            引用追踪
+          </a>
+          <a class="nav-item" data-panel="page-hits">
+            <span class="nav-icon"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7"/><circle cx="10" cy="10" r="4"/><circle cx="10" cy="10" r="1"/></svg></span>
+            命中诊断
+          </a>
+        </nav>
+
+        <div class="side-footer">
+          <span id="status-dot"></span>
+          <p id="status">就绪</p>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Toggle sidebar">
+            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 5h14M3 10h14M3 15h14"/></svg>
+          </button>
+          <p id="topbar-title">智能问答</p>
+        </header>
+
+        <!-- Page: 知识库 -->
+        <section class="page" id="page-kbs">
+          <div class="page-body wide">
+            <div class="section-header">
+              <div class="section-bar"></div>
+              <div>
+                <h2>知识库治理</h2>
+                <p>管理知识库、单库文件和治理任务。</p>
+              </div>
+            </div>
+
+            <div class="toolbar-row">
+              <button type="button" class="primary-btn compact" id="refresh-kbs">刷新</button>
+              <form id="kb-create-form" class="inline-form">
+                <input id="kb-name" type="text" placeholder="新知识库名称" required />
+                <button type="submit" class="primary-btn compact">创建</button>
+              </form>
+            </div>
+
+            <div class="split-layout">
+              <section class="panel">
+                <div class="panel-head">
+                  <h3>知识库列表</h3>
+                  <span id="kb-count" class="muted"></span>
+                </div>
+                <div id="kb-list" class="kb-list"></div>
+              </section>
+
+              <section class="panel">
+                <div class="panel-head">
+                  <h3>文件与任务</h3>
+                  <button type="button" class="icon-btn" id="reindex-kb" title="Reindex">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M2 8a6 6 0 0110.47-4M14 8a6 6 0 01-10.47 4"/><path d="M12 2v2.5H9.5M4 14v-2.5h2.5"/></svg>
+                  </button>
+                </div>
+                <div id="kb-detail" class="detail-empty">选择一个知识库查看文件。</div>
+                <div id="kb-documents" class="doc-list"></div>
+              </section>
+            </div>
+          </div>
+        </section>
+
+        <!-- Page: 智能问答 -->
+        <section class="page active" id="page-answer">
+          <div class="page-body page-body--answer">
+            <div class="composer">
+              <textarea id="question" rows="3" placeholder="有什么我能帮忙的？ 试试输入一个知识库问题…"></textarea>
+              <div class="composer-bar">
+                <span class="hint">Ctrl + Enter 发送</span>
+                <button type="button" id="answer" class="send-btn" title="发送">
+                  <svg viewBox="0 0 20 20" fill="currentColor"><path d="M3.5 18.5l14-8.5-14-8.5v6.5L12 10 3.5 12v6.5z"/></svg>
+                </button>
+              </div>
+            </div>
+
+            <div class="answer-area" id="answer-area">
+              <div class="result-card">
+                <div class="result-card-bar"></div>
+                <div class="result-card-body">
+                  <h3>回答</h3>
+                  <pre id="answer-output" class="output-block"></pre>
+                </div>
+              </div>
+              <div class="result-card secondary">
+                <div class="result-card-bar"></div>
+                <div class="result-card-body">
+                  <h3>原始响应</h3>
+                  <pre id="query-output" class="output-block small"></pre>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Page: 文档导入 -->
+        <section class="page" id="page-upload">
+          <div class="page-body">
+            <div class="section-header">
+              <div class="section-bar"></div>
+              <div>
+                <h2>文档导入</h2>
+                <p>上传文档并触发解析、切片和 embedding 回填。</p>
+              </div>
+            </div>
+
+            <form id="upload-form" class="upload-card">
+              <div class="drop-zone" id="drop-zone">
+                <div class="drop-zone-content" id="drop-zone-content">
+                  <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M24 32V12m0 0l-7 7m7-7l7 7"/><path d="M8 30v6a4 4 0 004 4h24a4 4 0 004-4v-6"/></svg>
+                  <p>拖拽文件到此处，或 <label for="file" class="file-label">点击选择文件</label></p>
+                  <span class="drop-hint">支持 Markdown、PDF、TXT、DOCX、CSV</span>
+                  <input id="file" name="file" type="file" required hidden />
+                  <span class="file-name" id="file-name"></span>
+                </div>
+                <div class="upload-progress" id="upload-progress">
+                  <span class="progress-label" id="progress-label">上传中… 0%</span>
+                  <div class="progress-bar-track">
+                    <div class="progress-bar-fill" id="progress-fill"></div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="form-grid">
+                <div class="field full">
+                  <label for="source-uri">Source URI</label>
+                  <input id="source-uri" name="source_uri" type="text" placeholder="docs/handbook.md" />
+                </div>
+                <div class="field">
+                  <label for="doc-type">文档类型</label>
+                  <input id="doc-type" name="doc_type" type="text" placeholder="markdown" />
+                </div>
+                <div class="field">
+                  <label for="title">文档标题</label>
+                  <input id="title" name="title" type="text" placeholder="知识手册" />
+                </div>
+              </div>
+
+              <button type="submit" class="primary-btn">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 11V3m0 0L5 6m3-3l3 3"/><path d="M2 11v2a1 1 0 001 1h10a1 1 0 001-1v-2"/></svg>
+                提交导入
+              </button>
+            </form>
+
+            <div class="result-card" style="margin-top:28px">
+              <div class="result-card-bar"></div>
+              <div class="result-card-body">
+                <div class="result-card-head">
+                  <h3>导入结果</h3>
+                  <div style="display:flex; gap:8px; align-items:center;">
+                    <span id="result-status-tag" class="result-tag" style="display:none"></span>
+                    <button type="button" class="icon-btn" id="refresh-job" title="刷新任务状态">
+                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M2 8a6 6 0 0110.47-4M14 8a6 6 0 01-10.47 4"/><path d="M12 2v2.5H9.5M4 14v-2.5h2.5"/></svg>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="phase-stepper" id="phase-stepper" style="display:none">
+                  <div class="phase-step" data-phase="uploading">
+                    <div class="phase-dot" id="dot-uploading"></div>
+                    <span class="phase-label">上传</span>
+                  </div>
+                  <div class="phase-step" data-phase="processing">
+                    <div class="phase-dot" id="dot-processing"></div>
+                    <span class="phase-label">解析切片</span>
+                  </div>
+                  <div class="phase-step" data-phase="embedding">
+                    <div class="phase-dot" id="dot-embedding"></div>
+                    <span class="phase-label">Embedding</span>
+                  </div>
+                  <div class="phase-step" data-phase="complete">
+                    <div class="phase-dot" id="dot-complete"></div>
+                    <span class="phase-label">完成</span>
+                  </div>
+                </div>
+
+                <dl class="result-fields" id="result-fields" style="display:none"></dl>
+
+                <details style="margin-top:12px" id="raw-details">
+                  <summary style="cursor:pointer; font-size:12px; color:var(--muted); user-select:none">原始 JSON</summary>
+                  <pre id="job-output" class="output-block small" style="margin-top:8px"></pre>
+                </details>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Page: 引用追踪 -->
+        <section class="page" id="page-references">
+          <div class="page-body">
+            <div class="section-header">
+              <div class="section-bar"></div>
+              <div>
+                <h2>引用追踪</h2>
+                <p>可追溯到文档、chunk、parent、页码和来源。</p>
+              </div>
+            </div>
+            <pre id="references-output" class="output-block tall"></pre>
+          </div>
+        </section>
+
+        <!-- Page: 命中诊断 -->
+        <section class="page" id="page-hits">
+          <div class="page-body">
+            <div class="section-header">
+              <div class="section-bar"></div>
+              <div>
+                <h2>命中诊断</h2>
+                <p>向量召回和 rerank 命中的详细诊断信息。</p>
+              </div>
+            </div>
+            <pre id="hits-output" class="output-block tall"></pre>
+          </div>
+        </section>
+      </main>
+    </div>
+    <script src="/console/app.js"></script>
+  </body>
+</html>

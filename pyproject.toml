@@ -13,6 +13,10 @@ dependencies = [
     "pydantic-settings>=2.0",
     "python-dotenv",
     "httpx",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "python-multipart>=0.0.9",
+    "PyJWT>=2.8",
     "pypdf>=3.0.0",
 ]
 
@@ -30,6 +34,9 @@ build-backend = "hatchling.build"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "integration: integration tests requiring external services (DB, DashScope)",
+]
 
 [tool.ruff]
 target-version = "py311"
