@@ -15,6 +15,7 @@ ChunkId = int
 VECTOR_METADATA_FIELDS = frozenset(
     {
         "tenant_id",
+        "knowledge_base_id",
         "document_id",
         "chunk_id",
         "chunk_key",
@@ -119,6 +120,7 @@ class VectorSearchHit:
 @dataclass(frozen=True)
 class VectorSearchFilter:
     tenant_id: str
+    knowledge_base_id: int | list[int] | None = None
     department: str | list[str] | None = None
     access_level: str | list[str] | None = None
     doc_type: str | None = None

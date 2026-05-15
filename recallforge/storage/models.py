@@ -36,6 +36,150 @@ DOCUMENT_STATUSES = ("active", "superseded", "deleted")
 INGEST_STATUSES = ("pending", "running", "success", "failed", "skipped_duplicate")
 QUERY_STATUSES = ("success", "retrieved", "refused", "failed")
 SEARCH_MODES = ("vector", "full_text", "hybrid")
+KNOWLEDGE_BASE_STATUSES = ("active", "archived", "deleted")
+KNOWLEDGE_BASE_ROLES = ("owner", "admin", "editor", "viewer", "auditor")
+PRINCIPAL_TYPES = ("user", "department", "service", "application")
+AUDIT_OUTCOMES = ("success", "denied", "failed")
+
+
+# ── rag_knowledge_bases ────────────────────────────────────────
+
+
+class RagKnowledgeBase(Base):
+    __tablename__ = "rag_knowledge_bases"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    tenant_id = Column(Text, nullable=False)
+    name = Column(Text, nullable=False)
+    description = Column(Text)
+    status = Column(Text, nullable=False, server_default="'active'")
+    owner_user_id = Column(Text, nullable=False)
+    default_department = Column(Text, nullable=False, server_default="'global'")
+    default_access_level = Column(Text, nullable=False, server_default="'internal'")
+    default_doc_type = Column(Text)
+    default_parser = Column(Text, nullable=False, server_default="'auto'")
+    default_template = Column(Text, nullable=False, server_default="'auto'")
+    default_search_mode = Column(Text, nullable=False, server_default="'vector'")
+    default_top_k = Column(Integer)
+    default_final_top_k = Column(Integer)
+    embedding_model = Column(Text)
+    reranker_model = Column(Text)
+    tags = Column(ARRAY(Text), nullable=False, server_default="'{}'::text[]")
+    metadata_ = Column("metadata", JSONB, nullable=False, server_default="'{}'::jsonb")
+    created_by = Column(Text, nullable=False)
+    updated_by = Column(Text, nullable=False)
+    created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default="now()")
+    updated_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default="now()")
+    deleted_at = Column(TIMESTAMP(timezone=True))
+
+    __table_args__ = (
+        CheckConstraint(
+            f"status IN {KNOWLEDGE_BASE_STATUSES}",
+            name="ck_rag_knowledge_bases_status",
+        ),
+        CheckConstraint(
+            f"default_access_level IN {ACCESS_LEVELS}",
+            name="ck_rag_knowledge_bases_default_access_level",
+        ),
+        CheckConstraint(
+            f"default_search_mode IN {SEARCH_MODES}",
+            name="ck_rag_knowledge_bases_default_search_mode",
+        ),
+        CheckConstraint("default_top_k IS NULL OR default_top_k > 0", name="ck_rag_knowledge_bases_top_k"),
+        CheckConstraint(
+            "default_final_top_k IS NULL OR default_final_top_k > 0",
+            name="ck_rag_knowledge_bases_final_top_k",
+        ),
+        Index(
+            "idx_rag_kb_tenant_status_updated",
+            "tenant_id", "status", text("updated_at DESC"),
+        ),
+        Index(
+            "uq_rag_kb_tenant_active_name",
+            "tenant_id", "name",
+            unique=True,
+            postgresql_where=text("status = 'active'"),
+        ),
+    )
+
+
+class RagKnowledgeBaseMember(Base):
+    __tablename__ = "rag_knowledge_base_members"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    tenant_id = Column(Text, nullable=False)
+    knowledge_base_id = Column(
+        BigInteger,
+        ForeignKey("rag_knowledge_bases.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    principal_type = Column(Text, nullable=False)
+    principal_id = Column(Text, nullable=False)
+    role = Column(Text, nullable=False)
+    created_by = Column(Text)
+    created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default="now()")
+
+    __table_args__ = (
+        CheckConstraint(f"principal_type IN {PRINCIPAL_TYPES}", name="ck_rag_kb_members_principal_type"),
+        CheckConstraint(f"role IN {KNOWLEDGE_BASE_ROLES}", name="ck_rag_kb_members_role"),
+        UniqueConstraint(
+            "tenant_id", "knowledge_base_id", "principal_type", "principal_id",
+            name="uq_rag_kb_members_principal",
+        ),
+        Index("idx_rag_kb_members_principal", "tenant_id", "principal_type", "principal_id"),
+        Index("idx_rag_kb_members_kb_role", "tenant_id", "knowledge_base_id", "role"),
+    )
+
+
+class RagApplicationGrant(Base):
+    __tablename__ = "rag_application_grants"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    tenant_id = Column(Text, nullable=False)
+    application_id = Column(Text, nullable=False)
+    knowledge_base_id = Column(
+        BigInteger,
+        ForeignKey("rag_knowledge_bases.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    scopes = Column(ARRAY(Text), nullable=False, server_default="'{}'::text[]")
+    status = Column(Text, nullable=False, server_default="'active'")
+    expires_at = Column(TIMESTAMP(timezone=True))
+    created_by = Column(Text)
+    created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default="now()")
+
+    __table_args__ = (
+        CheckConstraint("status IN ('active', 'revoked')", name="ck_rag_application_grants_status"),
+        Index("idx_rag_application_grants_app", "tenant_id", "application_id", "status"),
+        Index("idx_rag_application_grants_kb", "tenant_id", "knowledge_base_id", "status"),
+    )
+
+
+class RagAuditEvent(Base):
+    __tablename__ = "rag_audit_events"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    event_id = Column(Uuid, nullable=False, default=uuid.uuid4)
+    tenant_id = Column(Text, nullable=False)
+    knowledge_base_id = Column(BigInteger)
+    document_id = Column(BigInteger)
+    job_id = Column(Uuid)
+    request_id = Column(Uuid)
+    actor_user_id = Column(Text, nullable=False)
+    actor_type = Column(Text, nullable=False)
+    action = Column(Text, nullable=False)
+    resource_type = Column(Text, nullable=False)
+    resource_id = Column(Text)
+    outcome = Column(Text, nullable=False)
+    metadata_ = Column("metadata", JSONB, nullable=False, server_default="'{}'::jsonb")
+    created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default="now()")
+
+    __table_args__ = (
+        CheckConstraint(f"outcome IN {AUDIT_OUTCOMES}", name="ck_rag_audit_events_outcome"),
+        UniqueConstraint("event_id", name="uq_rag_audit_events_event_id"),
+        Index("idx_rag_audit_tenant_kb_created", "tenant_id", "knowledge_base_id", text("created_at DESC")),
+        Index("idx_rag_audit_tenant_action_created", "tenant_id", "action", text("created_at DESC")),
+    )
 
 
 # ── rag_documents ──────────────────────────────────────────────
@@ -46,6 +190,11 @@ class RagDocument(Base):
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     tenant_id = Column(Text, nullable=False)
+    knowledge_base_id = Column(
+        BigInteger,
+        ForeignKey("rag_knowledge_bases.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
     source_uri = Column(Text, nullable=False)
     source_name = Column(Text)
     doc_type = Column(Text, nullable=False)
@@ -80,14 +229,18 @@ class RagDocument(Base):
             name="ck_rag_documents_status",
         ),
         UniqueConstraint(
-            "tenant_id", "source_uri", "version",
+            "tenant_id", "knowledge_base_id", "source_uri", "version",
             name="uq_rag_documents_source_version",
         ),
         Index(
             "uq_rag_documents_active_source",
-            "tenant_id", "source_uri",
+            "tenant_id", "knowledge_base_id", "source_uri",
             unique=True,
             postgresql_where=text("status = 'active'"),
+        ),
+        Index(
+            "idx_rag_documents_kb_status_updated",
+            "tenant_id", "knowledge_base_id", "status", text("updated_at DESC"),
         ),
         Index(
             "idx_rag_documents_tenant_source",
@@ -112,6 +265,11 @@ class RagParentChunk(Base):
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     tenant_id = Column(Text, nullable=False)
+    knowledge_base_id = Column(
+        BigInteger,
+        ForeignKey("rag_knowledge_bases.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
     document_id = Column(
         BigInteger,
         ForeignKey("rag_documents.id", ondelete="RESTRICT"),
@@ -182,6 +340,10 @@ class RagParentChunk(Base):
             "tenant_id", "document_id", "status",
         ),
         Index(
+            "idx_rag_parent_chunks_kb_status",
+            "tenant_id", "knowledge_base_id", "status",
+        ),
+        Index(
             "idx_rag_parent_chunks_tenant_status_version",
             "tenant_id", "status", "version",
         ),
@@ -205,6 +367,11 @@ class RagChunk(Base):
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     tenant_id = Column(Text, nullable=False)
+    knowledge_base_id = Column(
+        BigInteger,
+        ForeignKey("rag_knowledge_bases.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
     document_id = Column(
         BigInteger,
         ForeignKey("rag_documents.id", ondelete="RESTRICT"),
@@ -313,6 +480,10 @@ class RagChunk(Base):
             "tenant_id", "department", "access_level", "doc_type", "status", "version",
         ),
         Index(
+            "idx_rag_chunks_kb_permission_active",
+            "tenant_id", "knowledge_base_id", "department", "access_level", "doc_type", "status", "version",
+        ),
+        Index(
             "idx_rag_chunks_embedding_model_active",
             "tenant_id", "embedding_model", "status",
             postgresql_where=text("status = 'active'"),
@@ -335,6 +506,11 @@ class RagIngestJob(Base):
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     job_id = Column(Uuid, nullable=False)
     tenant_id = Column(Text, nullable=False)
+    knowledge_base_id = Column(
+        BigInteger,
+        ForeignKey("rag_knowledge_bases.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
     document_id = Column(
         BigInteger,
         ForeignKey("rag_documents.id", ondelete="RESTRICT"),
@@ -396,6 +572,10 @@ class RagIngestJob(Base):
             "tenant_id", "status", text("created_at DESC"),
         ),
         Index(
+            "idx_rag_ingest_jobs_kb_status_created",
+            "tenant_id", "knowledge_base_id", "status", text("created_at DESC"),
+        ),
+        Index(
             "idx_rag_ingest_jobs_tenant_source_created",
             "tenant_id", "source_uri", text("created_at DESC"),
         ),
@@ -415,6 +595,8 @@ class RagQueryLog(Base):
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     request_id = Column(Uuid, nullable=False, default=uuid.uuid4)
     tenant_id = Column(Text, nullable=False)
+    knowledge_base_id = Column(BigInteger)
+    knowledge_base_ids = Column(ARRAY(BigInteger), nullable=False, server_default="'{}'::bigint[]")
     user_id = Column(Text, nullable=False)
     department = Column(Text, nullable=False)
     access_level = Column(Text, nullable=False)
@@ -491,6 +673,10 @@ class RagQueryLog(Base):
         Index(
             "idx_rag_query_logs_tenant_created",
             "tenant_id", text("created_at DESC"),
+        ),
+        Index(
+            "idx_rag_query_logs_kb_created",
+            "tenant_id", "knowledge_base_id", text("created_at DESC"),
         ),
         Index(
             "idx_rag_query_logs_tenant_user_created",

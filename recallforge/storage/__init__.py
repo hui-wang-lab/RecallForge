@@ -8,6 +8,7 @@ from recallforge.storage.embedding_columns import (
 )
 from recallforge.storage.pgvector_store import PgVectorStore
 from recallforge.storage.vector_store import (
+    UnsupportedSearchModeError,
     VectorChunk,
     VectorFilterError,
     VectorMetadataError,
@@ -17,7 +18,6 @@ from recallforge.storage.vector_store import (
     VectorStoreAdapter,
     VectorStoreError,
     VectorUpsertConflict,
-    UnsupportedSearchModeError,
 )
 
 __all__ = [

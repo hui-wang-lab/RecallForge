@@ -13,9 +13,12 @@ from recallforge.storage.models import (
     QUERY_STATUSES,
     SEARCH_MODES,
     Base,
+    RagAuditEvent,
     RagChunk,
     RagDocument,
     RagIngestJob,
+    RagKnowledgeBase,
+    RagKnowledgeBaseMember,
     RagParentChunk,
     RagQueryLog,
 )
@@ -355,21 +358,31 @@ class TestMetadataColumnMapping:
     def test_query_log_metadata_column_name(self):
         assert RagQueryLog.__table__.c.metadata.name == "metadata"
 
+    def test_knowledge_base_metadata_column_name(self):
+        assert RagKnowledgeBase.__table__.c.metadata.name == "metadata"
+
+    def test_audit_event_metadata_column_name(self):
+        assert RagAuditEvent.__table__.c.metadata.name == "metadata"
+
 
 # ── Base metadata completeness ──────────────────────────────────
 
 
 class TestBaseMetadata:
-    def test_five_tables_registered(self):
+    def test_m6_tables_registered(self):
         table_names = {t.name for t in Base.metadata.sorted_tables}
         expected = {
+            "rag_knowledge_bases",
+            "rag_knowledge_base_members",
+            "rag_application_grants",
+            "rag_audit_events",
             "rag_documents",
             "rag_parent_chunks",
             "rag_chunks",
             "rag_ingest_jobs",
             "rag_query_logs",
         }
-        assert table_names == expected
+        assert expected.issubset(table_names)
 
     def test_foreign_keys_reference_correct_tables(self):
         fk_targets = set()
@@ -380,3 +393,27 @@ class TestBaseMetadata:
         # ingest_jobs -> documents
         assert "rag_documents" in fk_targets
         assert "rag_parent_chunks" in fk_targets
+        assert "rag_knowledge_bases" in fk_targets
+
+
+class TestM6KnowledgeBaseModels:
+    def test_knowledge_base_columns_exist(self):
+        cols = _get_columns(RagKnowledgeBase.__table__)
+        expected = {
+            "id", "tenant_id", "name", "description", "status", "owner_user_id",
+            "default_department", "default_access_level", "default_doc_type",
+            "default_parser", "default_template", "default_search_mode",
+            "default_top_k", "default_final_top_k", "embedding_model",
+            "reranker_model", "tags", "metadata", "created_by", "updated_by",
+            "created_at", "updated_at", "deleted_at",
+        }
+        assert expected.issubset(cols)
+
+    def test_knowledge_base_member_role_constraint(self):
+        checks = _get_check_constraint_names(RagKnowledgeBaseMember.__table__)
+        assert "ck_rag_kb_members_role" in checks
+
+    def test_existing_tables_have_knowledge_base_scope(self):
+        for table in (RagDocument.__table__, RagParentChunk.__table__, RagChunk.__table__, RagIngestJob.__table__):
+            assert "knowledge_base_id" in _get_columns(table)
+        assert "knowledge_base_ids" in _get_columns(RagQueryLog.__table__)

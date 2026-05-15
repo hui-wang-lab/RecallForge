@@ -35,6 +35,7 @@ def _make_document_row(**overrides) -> RagDocument:
     defaults = dict(
         id=1,
         tenant_id="t1",
+        knowledge_base_id=10,
         source_uri="file:///test.md",
         source_name="test.md",
         doc_type="markdown",
@@ -62,6 +63,7 @@ def _make_parent_chunk_row(**overrides) -> RagParentChunk:
     defaults = dict(
         id=10,
         tenant_id="t1",
+        knowledge_base_id=10,
         document_id=1,
         source_uri="file:///test.md",
         doc_type="markdown",
@@ -93,6 +95,7 @@ def _make_chunk_row(**overrides) -> RagChunk:
     defaults = dict(
         id=100,
         tenant_id="t1",
+        knowledge_base_id=10,
         document_id=1,
         parent_id=10,
         chunk_key="c1",
@@ -134,6 +137,7 @@ def _make_job_row(**overrides) -> RagIngestJob:
         id=1,
         job_id=job_id,
         tenant_id="t1",
+        knowledge_base_id=10,
         document_id=None,
         source_uri="file:///test.md",
         source_name="test.md",

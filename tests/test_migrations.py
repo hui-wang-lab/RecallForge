@@ -45,6 +45,7 @@ class TestAlembicHeads:
         script = ScriptDirectory.from_config(cfg)
         heads = script.get_heads()
         assert len(heads) == 1, f"Expected single head, got: {heads}"
+        assert heads[0] == "0003"
 
 
 # ── Migration content checks ────────────────────────────────────
@@ -130,4 +131,36 @@ class TestMigrationModuleImport:
             assert hasattr(mod, "revision")
             assert hasattr(mod, "upgrade")
             assert hasattr(mod, "downgrade")
-            assert mod.down_revision is None, "Initial migration must have down_revision=None"
+            if mod.revision == "0001":
+                assert mod.down_revision is None
+            else:
+                assert mod.down_revision is not None
+
+
+class TestM6MigrationContent:
+    @pytest.fixture()
+    def migration_source(self) -> str:
+        path = VERSIONS_DIR / "0003_add_knowledge_base_governance.py"
+        assert path.exists()
+        return path.read_text(encoding="utf-8")
+
+    def test_creates_knowledge_base_tables(self, migration_source: str):
+        for table in [
+            "rag_knowledge_bases",
+            "rag_knowledge_base_members",
+            "rag_application_grants",
+            "rag_audit_events",
+        ]:
+            assert table in migration_source
+
+    def test_adds_knowledge_base_scope_to_existing_tables(self, migration_source: str):
+        for table in [
+            "rag_documents",
+            "rag_parent_chunks",
+            "rag_chunks",
+            "rag_ingest_jobs",
+            "rag_query_logs",
+        ]:
+            assert table in migration_source
+        assert "knowledge_base_id" in migration_source
+        assert "knowledge_base_ids" in migration_source

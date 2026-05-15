@@ -18,6 +18,7 @@ from recallforge.storage.embedding_columns import (
 )
 from recallforge.storage.models import DOCUMENT_STATUSES, RagChunk, RagDocument
 from recallforge.storage.vector_store import (
+    UnsupportedSearchModeError,
     VectorChunk,
     VectorFilterError,
     VectorMetadataError,
@@ -25,7 +26,6 @@ from recallforge.storage.vector_store import (
     VectorSearchFilter,
     VectorSearchHit,
     VectorUpsertConflict,
-    UnsupportedSearchModeError,
 )
 
 
@@ -258,6 +258,11 @@ class PgVectorStore:
             raise VectorFilterError(f"invalid chunk status filter: {status!r}")
         clauses.append(RagChunk.status == status)
 
+        if filters.knowledge_base_id is not None:
+            if isinstance(filters.knowledge_base_id, list):
+                clauses.append(RagChunk.knowledge_base_id.in_([int(item) for item in filters.knowledge_base_id]))
+            else:
+                clauses.append(RagChunk.knowledge_base_id == int(filters.knowledge_base_id))
         if filters.department is not None:
             clauses.append(_single_or_list_clause(RagChunk.department, filters.department, "department"))
         if filters.access_level is not None:
@@ -276,6 +281,7 @@ class PgVectorStore:
 def _metadata_from_row(row: RagChunk, spec: EmbeddingColumnSpec) -> dict[str, Any]:
     return {
         "tenant_id": row.tenant_id,
+        "knowledge_base_id": row.knowledge_base_id,
         "document_id": row.document_id,
         "chunk_id": row.id,
         "chunk_key": row.chunk_key,
